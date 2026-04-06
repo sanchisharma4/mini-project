@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VaultDemo — Secured by EntropyAuth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07080b;--surface:#0d0f14;--border:rgba(255,255,255,0.07);
+  --border2:rgba(255,255,255,0.13);--text:#c8ccd8;--muted:#3a3f55;
+  --dim:#161820;--amber:#f5a623;--red:#ff4757;--blue:#5b9cf6;
+  --green:#00e5a0;--gd:rgba(0,229,160,0.08);
+  --mono:'Share Tech Mono',monospace;--head:'Rajdhani',sans-serif;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:var(--bg)}
+body{font-family:var(--mono);color:var(--text);min-height:100vh}
+
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px)}
+
+.orb{position:fixed;border-radius:50%;pointer-events:none;filter:blur(100px)}
+.orb1{width:500px;height:500px;top:-150px;right:-100px;background:rgba(245,166,35,0.05)}
+.orb2{width:350px;height:350px;bottom:-80px;left:-80px;background:rgba(91,156,246,0.04)}
+
+/* ── LAYOUT ── */
+.shell{min-height:100vh;display:flex;flex-direction:column;position:relative;z-index:1}
+
+/* top bar */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0.9rem 2rem;border-bottom:1px solid var(--border);
+  background:rgba(7,8,11,0.9);backdrop-filter:blur(12px);
+  position:sticky;top:0;z-index:50
+}
+.topbar-brand{font-family:var(--head);font-weight:700;font-size:1.2rem;letter-spacing:0.02em}
+.topbar-brand em{color:var(--amber);font-style:normal}
+.topbar-badge{
+  display:flex;align-items:center;gap:7px;
+  padding:4px 12px;border-radius:20px;
+  border:1px solid rgba(0,229,160,0.2);
+  font-size:0.6rem;letter-spacing:0.15em;color:rgba(0,229,160,0.6);
+  text-transform:uppercase
+}
+.topbar-badge::before{
+  content:'';width:5px;height:5px;border-radius:50%;
+  background:var(--green);box-shadow:0 0 6px var(--green);
+  animation:blink 2s infinite
+}
+
+/* ── SCREENS ── */
+.screen{display:none;flex:1;align-items:center;justify-content:center;padding:2rem}
+.screen.active{display:flex}
+
+/* ── STEP 1: email+pass ── */
+.form-card{
+  width:100%;max-width:400px;
+  background:var(--surface);border:1px solid var(--border2);
+  border-radius:18px;overflow:hidden;
+  animation:rise .5s ease both
+}
+.card-header{
+  padding:1.5rem 1.8rem 1.2rem;
+  border-bottom:1px solid var(--border)
+}
+.card-header h1{
+  font-family:var(--head);font-size:1.5rem;font-weight:600;
+  margin-bottom:0.3rem
+}
+.card-header p{font-size:0.68rem;color:var(--muted);line-height:1.7}
+.card-body{padding:1.5rem 1.8rem 1.8rem}
+
+.field{margin-bottom:1rem}
+.field label{
+  display:block;font-size:0.6rem;letter-spacing:0.15em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:6px
+}
+.field input{
+  width:100%;background:var(--bg);border:1px solid var(--border);
+  border-radius:8px;padding:0.65rem 0.9rem;
+  color:var(--text);font-family:var(--mono);font-size:0.85rem;
+  outline:none;transition:border-color .2s
+}
+.field input:focus{border-color:var(--amber)}
+
+.submit-btn{
+  width:100%;padding:0.75rem;border-radius:10px;
+  background:rgba(245,166,35,0.1);border:1px solid rgba(245,166,35,0.25);
+  color:var(--amber);font-family:var(--mono);font-size:0.82rem;
+  cursor:pointer;letter-spacing:0.05em;transition:all .15s
+}
+.submit-btn:hover{background:rgba(245,166,35,0.18)}
+.submit-btn:active{transform:scale(0.98)}
+
+/* ── STEP 2: OTP ── */
+.otp-card{
+  width:100%;max-width:400px;
+  background:var(--surface);border:1px solid var(--border2);
+  border-radius:18px;overflow:hidden;
+  animation:rise .5s ease both
+}
+.otp-card .card-header{background:var(--dim)}
+
+.instruction-steps{padding:1.2rem 1.8rem;border-bottom:1px solid var(--border)}
+.istep{
+  display:flex;gap:10px;align-items:center;
+  font-size:0.68rem;color:var(--muted);margin-bottom:8px
+}
+.istep:last-child{margin-bottom:0}
+.istep-n{
+  width:22px;height:22px;border-radius:50%;
+  background:rgba(0,229,160,0.08);border:1px solid rgba(0,229,160,0.2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:0.6rem;color:var(--green);flex-shrink:0
+}
+.istep strong{color:var(--text);font-weight:400}
+
+.otp-input-wrap{padding:1.4rem 1.8rem 1.6rem}
+
+.uid-field{margin-bottom:1rem}
+
+.otp-group{display:flex;gap:8px;margin-bottom:1rem}
+.otp-seg{
+  flex:1;background:var(--bg);border:1px solid var(--border);
+  border-radius:8px;padding:0.7rem 0.5rem;
+  color:var(--green);font-family:var(--head);
+  font-size:1.4rem;font-weight:600;
+  text-align:center;letter-spacing:0.15em;
+  text-transform:uppercase;outline:none;
+  transition:border-color .2s;
+}
+.otp-seg:focus{border-color:var(--green)}
+.otp-dash{
+  align-self:center;color:var(--muted);
+  font-family:var(--head);font-size:1.2rem
+}
+
+.verify-btn{
+  width:100%;padding:0.75rem;border-radius:10px;
+  background:var(--gd);border:1px solid rgba(0,229,160,0.2);
+  color:var(--green);font-family:var(--mono);font-size:0.82rem;
+  cursor:pointer;letter-spacing:0.05em;transition:all .15s
+}
+.verify-btn:hover{background:rgba(0,229,160,0.15)}
+.verify-btn:active{transform:scale(0.98)}
+
+.otp-status{
+  margin-top:0.8rem;font-size:0.68rem;
+  text-align:center;min-height:1.2rem;
+  transition:all .2s
+}
+.otp-status.err{color:var(--red)}
+.otp-status.ok{color:var(--green)}
+
+/* timer bar under OTP inputs */
+.otp-timer{
+  height:2px;background:var(--dim);border-radius:99px;margin-bottom:1rem;overflow:hidden
+}
+.otp-timer-fill{
+  height:100%;background:var(--green);border-radius:99px;
+  transition:width 1s linear
+}
+
+/* back link */
+.back-link{
+  margin-top:1rem;text-align:center;
+  font-size:0.65rem;color:var(--muted)
+}
+.back-link a{color:var(--blue);text-decoration:none;cursor:pointer}
+.back-link a:hover{text-decoration:underline}
+
+/* ── STEP 3: dashboard ── */
+.dashboard{
+  width:100%;max-width:700px;
+  animation:rise .5s ease both
+}
+.dash-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:2rem
+}
+.dash-head h1{
+  font-family:var(--head);font-size:2rem;font-weight:700;
+  letter-spacing:0.02em
+}
+.dash-head h1 em{color:var(--green);font-style:normal}
+.signout-link{
+  font-size:0.68rem;color:var(--muted);cursor:pointer;
+  background:none;border:none;font-family:var(--mono);
+  transition:color .2s
+}
+.signout-link:hover{color:var(--red)}
+
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media(max-width:500px){.dash-grid{grid-template-columns:1fr}}
+
+.dash-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;padding:1.3rem
+}
+.dash-label{
+  font-size:0.58rem;letter-spacing:0.2em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:0.6rem
+}
+.dash-val{
+  font-family:var(--head);font-size:1.6rem;font-weight:600;
+  color:var(--text)
+}
+.dash-val em{color:var(--green);font-style:normal}
+.dash-sub{font-size:0.62rem;color:var(--muted);margin-top:4px;line-height:1.6}
+
+.verified-banner{
+  background:var(--gd);border:1px solid rgba(0,229,160,0.2);
+  border-radius:12px;padding:1rem 1.4rem;margin-bottom:1.5rem;
+  display:flex;align-items:center;gap:12px;
+  font-size:0.72rem;color:var(--green)
+}
+.verified-banner svg{flex-shrink:0}
+
+/* ── LOADING spinner ── */
+.spinner{
+  width:16px;height:16px;border:2px solid var(--border2);
+  border-top-color:var(--green);border-radius:50%;
+  animation:spin .7s linear infinite;display:inline-block;vertical-align:middle
+}
+
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+
+<div class="shell">
+  <div class="topbar">
+    <div class="topbar-brand">Vault<em>Demo</em></div>
+    <div class="topbar-badge">secured by EntropyAuth</div>
+  </div>
+
+  <!-- ── SCREEN 1: email + password ── -->
+  <div class="screen active" id="s-login">
+    <div class="form-card">
+      <div class="card-header">
+        <h1>Sign in</h1>
+        <p>Enter your credentials. You'll then verify with your EntropyAuth code.</p>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <label>email</label>
+          <input type="email" id="email-inp" placeholder="you@example.com" value="demo@test.com">
+        </div>
+        <div class="field">
+          <label>password</label>
+          <input type="password" id="pass-inp" placeholder="••••••••" value="password123">
+        </div>
+        <button class="submit-btn" onclick="gotoOTP()">continue →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SCREEN 2: EntropyAuth OTP ── -->
+  <div class="screen" id="s-otp">
+    <div class="otp-card">
+      <div class="card-header">
+        <h1>Two-factor auth</h1>
+        <p>Open <strong style="color:var(--green)">EntropyAuth</strong> and enter your current code below.</p>
+      </div>
+
+      <div class="instruction-steps">
+        <div class="istep"><div class="istep-n">1</div>Open the <strong>EntropyAuth</strong> app (app.html)</div>
+        <div class="istep"><div class="istep-n">2</div>Enter your <strong>Google UID</strong> and the <strong>8-digit code</strong> shown</div>
+        <div class="istep"><div class="istep-n">3</div>Paste the code here before it expires</div>
+      </div>
+
+      <div class="otp-input-wrap">
+        <div class="uid-field">
+          <div class="field">
+            <label>your google uid (from EntropyAuth seed panel)</label>
+            <input type="text" id="uid-inp" placeholder="paste your uid here" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+
+        <div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">8-digit otp</div>
+        <div class="otp-timer"><div class="otp-timer-fill" id="otp-timer-fill" style="width:100%"></div></div>
+        <div class="otp-group">
+          <input class="otp-seg" id="seg1" maxlength="4" placeholder="XXXX" oninput="autoTab(this,'seg2')" onpaste="handlePaste(event)">
+          <div class="otp-dash">·</div>
+          <input class="otp-seg" id="seg2" maxlength="4" placeholder="XXXX" oninput="autoTab(this,null)" onkeydown="backTab(event,'seg1')">
+        </div>
+        <button class="verify-btn" onclick="verifyOTP()">verify code →</button>
+        <div class="otp-status" id="otp-status"></div>
+      </div>
+
+      <div class="back-link"><a onclick="gotoLogin()">← back to login</a></div>
+    </div>
+  </div>
+
+  <!-- ── SCREEN 3: dashboard ── -->
+  <div class="screen" id="s-dash">
+    <div class="dashboard">
+      <div class="dash-head">
+        <h1>Welcome <em id="dash-name">back</em></h1>
+        <button class="signout-link" onclick="gotoLogin()">sign out</button>
+      </div>
+
+      <div class="verified-banner">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="10" r="9" stroke="#00e5a0" stroke-width="1.5"/>
+          <path d="M6 10l3 3 5-5" stroke="#00e5a0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Identity verified via EntropyAuth — physical entropy OTP confirmed
+      </div>
+
+      <div class="dash-grid">
+        <div class="dash-card">
+          <div class="dash-label">auth method</div>
+          <div class="dash-val"><em>Entropy</em>Auth</div>
+          <div class="dash-sub">Webcam-derived true random OTP<br>verified via HMAC-SHA256</div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-label">session</div>
+          <div class="dash-val" id="dash-time">—</div>
+          <div class="dash-sub">OTP valid for ±30 second window<br>chaos seed bound to Google uid</div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-label">user</div>
+          <div class="dash-val" style="font-size:1.1rem" id="dash-email">—</div>
+          <div class="dash-sub">Logged in with OTP 2FA</div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-label">entropy source</div>
+          <div class="dash-val"><em>webcam</em></div>
+          <div class="dash-sub">Real-world physical randomness<br>inspired by Cloudflare's lava lamps</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════════════
+   CONFIG — must match server.py and app.html
+════════════════════════════════════════════════════════ */
+const SERVER_URL   = "http://localhost:5000";  // ← your Render URL after deploy
+const ADMIN_API_KEY = "dev-secret-change-me";  // ← match ADMIN_API_KEY in server.py
+
+/* ════════════════════════════════════════════════════════
+   SCREEN NAV
+════════════════════════════════════════════════════════ */
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+function gotoLogin() { showScreen("s-login"); }
+
+function gotoOTP() {
+  const email = document.getElementById("email-inp").value.trim();
+  const pass  = document.getElementById("pass-inp").value.trim();
+  if (!email || !pass) { alert("Enter email and password"); return; }
+  showScreen("s-otp");
+  startOTPTimer();
+  document.getElementById("seg1").focus();
+}
+
+/* ════════════════════════════════════════════════════════
+   OTP TIMER (cosmetic — shows 30s countdown)
+════════════════════════════════════════════════════════ */
+let timerInterval;
+function startOTPTimer() {
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    const secs = 30 - (Math.floor(Date.now()/1000) % 30);
+    document.getElementById("otp-timer-fill").style.width = (secs/30*100)+"%";
+  }, 1000);
+}
+
+/* ════════════════════════════════════════════════════════
+   OTP INPUT UX
+════════════════════════════════════════════════════════ */
+function autoTab(el, nextId) {
+  el.value = el.value.toUpperCase().replace(/[^A-Z0-9]/g,"");
+  if (el.value.length >= 4 && nextId) {
+    document.getElementById(nextId).focus();
+  }
+}
+function backTab(e, prevId) {
+  if (e.key==="Backspace" && !e.target.value) document.getElementById(prevId).focus();
+}
+function handlePaste(e) {
+  const txt = (e.clipboardData||window.clipboardData).getData("text").replace(/[^A-Za-z0-9]/g,"").toUpperCase();
+  if (txt.length>=8) {
+    document.getElementById("seg1").value=txt.slice(0,4);
+    document.getElementById("seg2").value=txt.slice(4,8);
+    e.preventDefault();
+  }
+}
+
+/* ════════════════════════════════════════════════════════
+   VERIFY — calls server /verify endpoint
+════════════════════════════════════════════════════════ */
+async function verifyOTP() {
+  const uid  = document.getElementById("uid-inp").value.trim();
+  const seg1 = document.getElementById("seg1").value.trim().toUpperCase();
+  const seg2 = document.getElementById("seg2").value.trim().toUpperCase();
+  const code = (seg1+seg2).replace(/[^A-Z0-9]/g,"");
+  const stat = document.getElementById("otp-status");
+
+  if (!uid) { stat.textContent="⚠  Paste your Google UID first"; stat.className="otp-status err"; return; }
+  if (code.length<6) { stat.textContent="⚠  Enter the full 8-digit code"; stat.className="otp-status err"; return; }
+
+  stat.innerHTML='<div class="spinner"></div>  verifying…'; stat.className="otp-status";
+
+  try {
+    const r = await fetch(`${SERVER_URL}/verify`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ api_key: ADMIN_API_KEY, uid, code })
+    });
+    const d = await r.json();
+
+    if (d.valid) {
+      stat.textContent="✓  Verified! Logging you in…"; stat.className="otp-status ok";
+      clearInterval(timerInterval);
+      setTimeout(()=>gotoDash(d.email||uid), 900);
+    } else {
+      stat.textContent="✗  Invalid code — check EntropyAuth and try again"; stat.className="otp-status err";
+    }
+  } catch(e) {
+    // Server offline — local HMAC fallback for demo (no chaos seed available here)
+    stat.textContent="⚠  Cannot reach server. Is server.py running?"; stat.className="otp-status err";
+  }
+}
+
+/* ════════════════════════════════════════════════════════
+   DASHBOARD
+════════════════════════════════════════════════════════ */
+function gotoDash(email) {
+  document.getElementById("dash-email").textContent = email || "authenticated user";
+  document.getElementById("dash-name").textContent  = (email||"user").split("@")[0];
+  const now = new Date();
+  document.getElementById("dash-time").textContent =
+    now.getHours().toString().padStart(2,"0")+":"+
+    now.getMinutes().toString().padStart(2,"0")+":"+
+    now.getSeconds().toString().padStart(2,"0");
+  showScreen("s-dash");
+}
+</script>
+</body>
+</html>
