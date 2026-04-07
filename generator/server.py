@@ -44,8 +44,13 @@ CORS(app)  # allow requests from your GitHub Pages / Netlify frontend
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 USERS_FILE     = os.path.join(BASE_DIR, "users.json")
 ADMIN_API_KEY  = os.environ.get("ADMIN_API_KEY", "dev-secret-change-me")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 # This key protects /verify so only YOUR demo website can call it.
 # Set it as an env variable on Render; hardcode only for local dev.
+
+def _google_oauth_env_ready() -> bool:
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 
 # ── User store (JSON file — good enough for a mini project) ──────────────────
 def load_users():
@@ -257,4 +262,8 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"\nEntropyAuth server running on http://localhost:{port}")
     print(f"Admin API key: {ADMIN_API_KEY}\n")
+    if _google_oauth_env_ready():
+        print("Google OAuth env: configured")
+    else:
+        print("Google OAuth env: missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET")
     app.run(host="0.0.0.0", port=port, debug=False)

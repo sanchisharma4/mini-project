@@ -7,52 +7,35 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 
-<!-- ── FIREBASE CONFIG ────────────────────────────────────────────────────
-     Replace every "YOUR_..." value below with your actual Firebase config.
-     Get it from: Firebase Console → Project Settings → Your apps → Web app
-─────────────────────────────────────────────────────────────────────── -->
-<script type="module">
-  import { initializeApp }
-    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
-    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+  // Setup Google Identity Services Token Client
+  const GOOGLE_CLIENT_ID = "954662485452-62cu29u834m55jfd5e8j599hq7l4al8f.apps.googleusercontent.com";
+  let tokenClient;
 
-  const firebaseConfig = {
-    apiKey:            "YOUR_API_KEY",
-    authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId:         "YOUR_PROJECT_ID",
-    storageBucket:     "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId:             "YOUR_APP_ID"
-  };
-
-  const app      = initializeApp(firebaseConfig);
-  const auth     = getAuth(app);
-  const provider = new GoogleAuthProvider();
-
-  window.__auth     = auth;
-  window.__provider = provider;
-
-  window.__login = async () => {
-    try {
-      const result = await signInWithPopup(auth, provider);
-      return result.user;
-    } catch(e) {
-      console.error("Google login error:", e);
-      throw e;
-    }
-  };
-
-  window.__logout = () => signOut(auth);
-
-  onAuthStateChanged(auth, user => {
-    if (user) {
-      window.__user = user;
-      onLogin(user);
-    } else {
-      window.__user = null;
-      onLogout();
-    }
+  window.addEventListener('load', () => {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: 'email profile openid',
+      callback: (tokenResponse) => {
+        if (tokenResponse && tokenResponse.access_token) {
+          // Fetch user info using the access token
+          fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+          })
+          .then(res => res.json())
+          .then(user => {
+            // "sub" is the unique Google user ID
+            window.__user = { uid: user.sub, email: user.email, displayName: user.name };
+            onLogin(window.__user);
+          })
+          .catch(e => {
+            console.error("Failed to fetch user profile", e);
+            alert("Could not load user profile.");
+          });
+        }
+      },
+    });
   });
 </script>
 
@@ -617,12 +600,12 @@ async function fetchHash() {
    LOGIN / LOGOUT
 ════════════════════════════════════════════════════════ */
 async function doLogin() {
-  if (!window.__login) { demoMode(); return; }
+  if (isDemoMode) return;
   try {
-    const user = await window.__login();
-    // onAuthStateChanged handles the rest
+    // Triggers the Google Auth popup
+    tokenClient.requestAccessToken();
   } catch(e) {
-    alert("Google login failed. Check Firebase config or use demo mode.");
+    alert("Google login failed.");
   }
 }
 
@@ -634,7 +617,10 @@ async function demoMode() {
 }
 
 function doLogout() {
-  if (window.__logout && !isDemoMode) window.__logout();
+  if (window.__user && window.__user.uid) {
+      // Optional: revoke the token with Google if desired
+      // google.accounts.oauth2.revoke(window.__user.uid, done => { console.log("Revoked"); });
+  }
   onLogout();
 }
 
