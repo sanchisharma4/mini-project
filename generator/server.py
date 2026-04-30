@@ -43,7 +43,7 @@ CORS(app)  # allow requests from your GitHub Pages / Netlify frontend
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 USERS_FILE     = os.path.join(BASE_DIR, "users.json")
-ADMIN_API_KEY  = os.environ.get("ADMIN_API_KEY", "dev-secret-change-me")
+ADMIN_API_KEY  = os.environ.get("ADMIN_API_KEY", "miniproject825")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 # This key protects /verify so only YOUR demo website can call it.
@@ -82,7 +82,9 @@ def _entropy_loop():
             print(f"[entropy] window={win} hash={frame_hash[:16]}…")
         except Exception as e:
             print(f"[entropy] Error: {e}")
-            # If webcam not available on server, fall back to time-based hash
+            # If webcam not available on server, fall back to time-based hash.
+            # IMPORTANT: The client fetchHash() fallback must use the SAME formula.
+            # Formula: sha256("server_entropy_fallback:{window}").hexdigest()
             win = int(time.time()) // 30
             fallback = hashlib.sha256(f"server_entropy_fallback:{win}".encode()).hexdigest()
             with _hash_lock:

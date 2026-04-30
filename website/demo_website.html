@@ -270,16 +270,17 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;
       </div>
 
       <div class="instruction-steps">
-        <div class="istep"><div class="istep-n">1</div>Open the <strong>EntropyAuth</strong> app (app.html)</div>
-        <div class="istep"><div class="istep-n">2</div>Enter your <strong>Google UID</strong> and the <strong>8-digit code</strong> shown</div>
-        <div class="istep"><div class="istep-n">3</div>Paste the code here before it expires</div>
+        <div class="istep"><div class="istep-n">1</div>Open the <strong>EntropyAuth</strong> app — <a href="https://your-netlify-app.netlify.app" target="_blank" style="color:var(--green)">open app ↗</a></div>
+        <div class="istep"><div class="istep-n">2</div>Sign in with Google. Your <strong>UID is auto-filled below</strong> if you've visited before.</div>
+        <div class="istep"><div class="istep-n">3</div>Copy the <strong>8-digit code</strong> from EntropyAuth and paste it here before it expires</div>
       </div>
 
       <div class="otp-input-wrap">
         <div class="uid-field">
           <div class="field">
-            <label>your google uid (from EntropyAuth seed panel)</label>
+            <label>your google uid (auto-filled from EntropyAuth, or paste manually)</label>
             <input type="text" id="uid-inp" placeholder="paste your uid here" autocomplete="off" spellcheck="false">
+            <div id="uid-status" style="font-size:0.6rem;color:var(--green);margin-top:4px;min-height:14px"></div>
           </div>
         </div>
 
@@ -363,6 +364,14 @@ function gotoOTP() {
   if (!email || !pass) { alert("Enter email and password"); return; }
   showScreen("s-otp");
   startOTPTimer();
+
+  // FIXED: Auto-fill UID from localStorage (written by authenticator app)
+  const savedUID = localStorage.getItem("entropyauth_uid");
+  if (savedUID) {
+    document.getElementById("uid-inp").value = savedUID;
+    document.getElementById("uid-status").textContent = "✓ UID loaded from EntropyAuth";
+  }
+
   document.getElementById("seg1").focus();
 }
 

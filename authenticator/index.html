@@ -575,11 +575,15 @@ async function registerUser(uid, email) {
       body: JSON.stringify({uid, email})
     });
     const d = await r.json();
+    // Mark as connected to real server
+    const src = document.getElementById("frame-source");
+    if (src) src.textContent = "webcam · server";
     return d.chaos_seed || null;
   } catch(e) {
     console.warn("Server offline — using local seed fallback");
-    // Fallback: derive seed client-side (matches server formula for demo)
-    return await hmac256("dev-secret-change-me", uid).then(h=>h.slice(0,32));
+    // Fallback: derive seed client-side using same formula as server.py
+    // server formula: hmac(ADMIN_API_KEY, uid).hexdigest()[:32]
+    return await hmac256("miniproject825", uid).then(h=>h.slice(0,32));
   }
 }
 
@@ -590,9 +594,17 @@ async function fetchHash() {
     document.getElementById("frame-source").textContent = "webcam · server";
     return d.hash;
   } catch {
-    // Offline fallback — simulate changing hash per window
+    // Offline fallback — MUST use the SAME formula as server.py's _entropy_loop fallback:
+    // server: hashlib.sha256(f"server_entropy_fallback:{win}").hexdigest()
+    // We replicate: hmac256 is sha256-based; for a simple sha256 we use a fixed key of ""
+    // Actually we replicate it as: sha256("server_entropy_fallback:" + win)
     const win = getWin();
-    return await hmac256("entropy_demo", String(win));
+    const enc = new TextEncoder();
+    const data = enc.encode(`server_entropy_fallback:${win}`);
+    const hashBuf = await crypto.subtle.digest("SHA-256", data);
+    const fallbackHash = [...new Uint8Array(hashBuf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+    document.getElementById("frame-source").textContent = "⚠ fallback (server offline)";
+    return fallbackHash;
   }
 }
 
@@ -611,7 +623,9 @@ async function doLogin() {
 
 async function demoMode() {
   isDemoMode = true;
-  const fake = { uid:"demo_"+Math.random().toString(36).slice(2,10), email:"demo@entropyauth.local", displayName:"Demo User" };
+  // FIXED: Use a stable demo UID (not random) so the same chaos_seed is always
+  // derived for the demo user. Random UIDs broke code verification every session.
+  const fake = { uid:"demo_fixed_user_001", email:"demo@entropyauth.local", displayName:"Demo User" };
   window.__user = fake;
   onLogin(fake);
 }
@@ -633,6 +647,10 @@ async function onLogin(user) {
   document.getElementById("uid-disp").textContent  = userUID.slice(0,8)+"····"+userUID.slice(-4);
   document.getElementById("uid-in-endpoint").textContent = `"${userUID.slice(0,8)}…"`;
 
+  // FIXED: Save UID to localStorage so demo_website.html can auto-fill it
+  // (works when both sites share same browser, e.g. Netlify + GitHub Pages)
+  try { localStorage.setItem("entropyauth_uid", userUID); } catch(e) {}
+
   // Register with server → get chaos seed
   chaosSeed = await registerUser(userUID, user.email || "");
   const seedMasked = chaosSeed.slice(0,8)+"·····"+chaosSeed.slice(-4);
@@ -648,6 +666,7 @@ async function onLogin(user) {
 
 function onLogout() {
   userUID = ""; chaosSeed = ""; isDemoMode = false;
+  try { localStorage.removeItem("entropyauth_uid"); } catch(e) {}
   document.getElementById("app").style.display   = "none";
   document.getElementById("login").style.display = "flex";
   drawLoginNoise();
