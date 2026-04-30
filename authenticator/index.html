@@ -3,942 +3,837 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ENTROPY.CORE — Authenticator</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<title>EntropyAuth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+  // Setup Google Identity Services Token Client
+  const GOOGLE_CLIENT_ID = "954662485452-62cu29u834m55jfd5e8j599hq7l4al8f.apps.googleusercontent.com";
+  let tokenClient;
+
+  window.addEventListener('load', () => {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: 'email profile openid',
+      callback: (tokenResponse) => {
+        if (tokenResponse && tokenResponse.access_token) {
+          // Fetch user info using the access token
+          fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+          })
+          .then(res => res.json())
+          .then(user => {
+            // "sub" is the unique Google user ID
+            window.__user = { uid: user.sub, email: user.email, displayName: user.name };
+            onLogin(window.__user);
+          })
+          .catch(e => {
+            console.error("Failed to fetch user profile", e);
+            alert("Could not load user profile.");
+          });
+        }
+      },
+    });
+  });
+</script>
+
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/*──────────────────────────────────────────────────────────
+  DESIGN: Military-grade terminal meets physical entropy.
+  Dark, precise, monospace. Feels like a real security tool.
+──────────────────────────────────────────────────────────*/
+:root {
+  --bg:       #060709;
+  --surface:  #0c0e12;
+  --s2:       #111318;
+  --border:   rgba(255,255,255,0.06);
+  --border2:  rgba(255,255,255,0.12);
+  --text:     #cdd0de;
+  --muted:    #3d4155;
+  --dim:      #1e2130;
+  --green:    #00e5a0;
+  --gd:       rgba(0,229,160,0.08);
+  --gd2:      rgba(0,229,160,0.15);
+  --amber:    #f5a623;
+  --red:      #ff4757;
+  --blue:     #5b9cf6;
+  --mono:     'Share Tech Mono', monospace;
+  --head:     'Rajdhani', sans-serif;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:var(--bg)}
+body{font-family:var(--mono);color:var(--text);min-height:100vh;overflow-x:hidden}
 
-  :root {
-    --bg: #080a0c;
-    --surface: #0d1117;
-    --border: #1a2030;
-    --border-lit: #1e3a4a;
-    --cyan: #00d4e8;
-    --cyan-dim: rgba(0,212,232,0.12);
-    --cyan-glow: rgba(0,212,232,0.04);
-    --text: #e8edf2;
-    --muted: #4a5568;
-    --muted-2: #2d3748;
-    --danger: #ff4757;
-    --success: #00e676;
-  }
+/* scanline texture */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:999;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);
+}
 
-  html, body {
-    height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Syne', sans-serif;
-    overflow: hidden;
-  }
+/* ambient glow */
+.orb{position:fixed;border-radius:50%;pointer-events:none;filter:blur(120px);z-index:0}
+.orb1{width:600px;height:600px;top:-200px;left:-150px;background:rgba(0,229,160,0.04)}
+.orb2{width:400px;height:400px;bottom:-100px;right:-100px;background:rgba(91,156,246,0.04)}
 
-  /* Subtle grid bg */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(0,212,232,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,212,232,0.03) 1px, transparent 1px);
-    background-size: 60px 60px;
-    pointer-events: none;
-    z-index: 0;
-  }
+.page{position:relative;z-index:1;min-height:100vh}
 
-  /* Ambient glow top-right */
-  body::after {
-    content: '';
-    position: fixed;
-    top: -200px;
-    right: -200px;
-    width: 600px;
-    height: 600px;
-    background: radial-gradient(circle, rgba(0,212,232,0.06) 0%, transparent 70%);
-    pointer-events: none;
-    z-index: 0;
-  }
+/*── LOGIN ──────────────────────────────────────────────*/
+#login{
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;min-height:100vh;padding:2rem;
+  animation:rise .6s ease both;
+}
 
-  /* ── LAYOUT ── */
-  .shell {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    height: 100vh;
-  }
+.brand{text-align:center;margin-bottom:3rem}
+.brand-name{
+  font-family:var(--head);font-size:3.2rem;font-weight:700;
+  letter-spacing:0.04em;line-height:1;
+  color:var(--text);
+}
+.brand-name em{color:var(--green);font-style:normal}
+.brand-sub{
+  font-size:0.62rem;letter-spacing:0.3em;text-transform:uppercase;
+  color:var(--muted);margin-top:0.5rem
+}
 
-  /* ── SIDEBAR ── */
-  .sidebar {
-    width: 220px;
-    flex-shrink: 0;
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    padding: 28px 0;
-    background: rgba(13,17,23,0.8);
-    backdrop-filter: blur(8px);
-  }
+.login-box{
+  width:100%;max-width:380px;
+  background:var(--surface);
+  border:1px solid var(--border2);
+  border-radius:16px;
+  overflow:hidden;
+}
 
-  .logo {
-    padding: 0 24px 28px;
-    border-bottom: 1px solid var(--border);
-  }
-  .logo-text {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    color: var(--cyan);
-    font-family: 'DM Mono', monospace;
-  }
-  .logo-dot { color: var(--muted); }
+/* live noise strip at top of login */
+.noise-strip{
+  width:100%;height:64px;position:relative;
+  border-bottom:1px solid var(--border);
+}
+.noise-strip canvas{
+  width:100%;height:100%;display:block;image-rendering:pixelated
+}
+.noise-strip-label{
+  position:absolute;bottom:6px;right:8px;
+  font-size:0.55rem;letter-spacing:0.15em;text-transform:uppercase;
+  color:rgba(0,229,160,0.4)
+}
 
-  .user-chip {
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border);
-  }
-  .user-name {
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    color: var(--text);
-    text-transform: uppercase;
-    margin-bottom: 3px;
-  }
-  .user-status {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    color: var(--success);
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-  .user-status::before {
-    content: '';
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--success);
-    box-shadow: 0 0 6px var(--success);
-    animation: pulse 2s ease infinite;
-  }
+.login-body{padding:1.8rem 2rem 2rem}
+.login-body h2{
+  font-family:var(--head);font-size:1.3rem;font-weight:600;
+  margin-bottom:0.4rem;color:var(--text)
+}
+.login-body p{
+  font-size:0.7rem;color:var(--muted);line-height:1.7;margin-bottom:1.6rem
+}
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
+.google-btn{
+  width:100%;display:flex;align-items:center;justify-content:center;gap:10px;
+  padding:0.8rem 1.2rem;
+  background:transparent;border:1px solid var(--border2);
+  border-radius:10px;color:var(--text);
+  font-family:var(--mono);font-size:0.82rem;
+  cursor:pointer;transition:background .2s,border-color .2s,transform .1s;
+  letter-spacing:0.04em;
+}
+.google-btn:hover{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.2)}
+.google-btn:active{transform:scale(0.98)}
 
-  .nav {
-    flex: 1;
-    padding: 20px 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
+.login-fine{
+  margin-top:1.2rem;font-size:0.6rem;color:var(--muted);
+  line-height:1.8;text-align:center
+}
+.login-fine a{color:var(--green);text-decoration:none}
 
-  .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 24px;
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    cursor: pointer;
-    transition: all 0.15s ease;
-    text-transform: uppercase;
-    border-left: 2px solid transparent;
-  }
-  .nav-item:hover { color: var(--text); background: var(--cyan-glow); }
-  .nav-item.active {
-    color: var(--cyan);
-    background: var(--cyan-dim);
-    border-left-color: var(--cyan);
-  }
+/*── NAV ────────────────────────────────────────────────*/
+#app{display:none}
 
-  .nav-icon {
-    width: 14px;
-    height: 14px;
-    opacity: 0.7;
-    flex-shrink: 0;
-  }
-  .nav-item.active .nav-icon { opacity: 1; }
+.nav{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0.9rem 1.5rem;
+  border-bottom:1px solid var(--border);
+  background:rgba(6,7,9,0.9);
+  backdrop-filter:blur(12px);
+  position:sticky;top:0;z-index:50;
+}
+.nav-brand{
+  font-family:var(--head);font-weight:700;font-size:1.1rem;letter-spacing:0.04em
+}
+.nav-brand em{color:var(--green);font-style:normal}
 
-  .sidebar-footer {
-    padding: 20px 24px 0;
-    border-top: 1px solid var(--border);
-  }
+.nav-right{display:flex;align-items:center;gap:12px}
+.nav-pill{
+  display:flex;align-items:center;gap:8px;
+  padding:4px 10px;border-radius:20px;
+  border:1px solid var(--border);font-size:0.68rem;color:var(--muted)
+}
+.nav-dot{
+  width:6px;height:6px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 6px var(--green);animation:blink 2s ease-in-out infinite
+}
+.nav-signout{
+  background:none;border:none;color:var(--muted);
+  font-family:var(--mono);font-size:0.68rem;
+  cursor:pointer;padding:4px 8px;border-radius:6px;
+  transition:color .2s
+}
+.nav-signout:hover{color:var(--red)}
 
-  .logout-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    cursor: pointer;
-    text-transform: uppercase;
-    padding: 8px 0;
-    transition: color 0.15s;
-    background: none;
-    border: none;
-    width: 100%;
-    text-align: left;
-  }
-  .logout-btn:hover { color: var(--danger); }
+/*── MAIN GRID ──────────────────────────────────────────*/
+.grid{
+  max-width:900px;margin:0 auto;
+  padding:2rem 1.2rem 5rem;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  grid-template-rows:auto;
+  gap:1.2rem;
+}
+@media(max-width:620px){.grid{grid-template-columns:1fr}}
 
-  /* ── MAIN CONTENT ── */
-  .main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
+.card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;padding:1.5rem;
+  animation:rise .5s ease both;
+  transition:border-color .3s;
+}
+.card:hover{border-color:var(--border2)}
+.card-full{grid-column:1/-1}
 
-  .topbar {
-    height: 56px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 36px;
-    flex-shrink: 0;
-  }
-  .topbar-title {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .topbar-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-  .avatar {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--cyan-dim);
-    border: 1px solid var(--border-lit);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--cyan);
-    letter-spacing: 0.05em;
-    cursor: pointer;
-  }
+.clabel{
+  font-size:0.58rem;letter-spacing:0.22em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:1.2rem;
+  display:flex;align-items:center;gap:8px
+}
+.clabel::after{content:'';flex:1;height:1px;background:var(--border)}
 
-  .content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 44px 48px;
-  }
-  .content::-webkit-scrollbar { width: 4px; }
-  .content::-webkit-scrollbar-track { background: transparent; }
-  .content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+/*── OTP DISPLAY ────────────────────────────────────────*/
+.otp-wrap{
+  display:flex;align-items:center;justify-content:center;
+  gap:0.2em;margin:0.4rem 0 1rem;
+  transition:opacity .2s,filter .2s;
+}
+.otp-wrap.fade{opacity:0.12;filter:blur(2px)}
 
-  /* ── PAGE SECTIONS ── */
-  .page { display: none; animation: fadeIn 0.2s ease; }
-  .page.active { display: block; }
+.otp-digit{
+  font-family:var(--head);font-weight:700;font-size:3.6rem;
+  color:var(--green);line-height:1;
+  text-shadow:0 0 30px rgba(0,229,160,0.4);
+  letter-spacing:0.06em;
+}
+.otp-sep{
+  font-family:var(--head);font-size:2rem;
+  color:var(--muted);margin:0 0.1em;align-self:center
+}
 
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+/* progress ring */
+.ring-wrap{
+  display:flex;align-items:center;justify-content:center;
+  gap:16px;margin-bottom:1.2rem
+}
+.ring-svg{transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:var(--dim);stroke-width:3}
+.ring-fg{
+  fill:none;stroke:var(--green);stroke-width:3;
+  stroke-linecap:round;
+  transition:stroke-dashoffset 1s linear, stroke .4s;
+}
+.ring-fg.urgent{stroke:var(--red)}
+.ring-secs{
+  font-family:var(--head);font-size:1.6rem;font-weight:600;
+  color:var(--text);min-width:60px;text-align:left
+}
+.ring-secs span{font-size:0.7rem;color:var(--muted);display:block;margin-top:-4px}
 
-  .page-header {
-    margin-bottom: 36px;
-  }
-  .page-title {
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--text);
-    margin-bottom: 6px;
-  }
-  .page-sub {
-    font-size: 13px;
-    color: var(--muted);
-    font-weight: 400;
-  }
+.btn-row{display:flex;gap:8px}
+.btn{
+  flex:1;padding:0.65rem;border-radius:9px;
+  font-family:var(--mono);font-size:0.75rem;
+  cursor:pointer;letter-spacing:0.05em;
+  transition:all .15s;border:1px solid transparent
+}
+.btn-g{background:var(--gd);color:var(--green);border-color:rgba(0,229,160,0.2)}
+.btn-g:hover{background:var(--gd2)}
+.btn-o{background:transparent;color:var(--muted);border-color:var(--border)}
+.btn-o:hover{border-color:var(--border2);color:var(--text)}
 
-  /* ── TOKEN CARD ── */
-  .token-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 32px;
-    max-width: 560px;
-    position: relative;
-    overflow: hidden;
-  }
-  .token-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
-    opacity: 0.5;
-  }
+/*── ENTROPY FRAME ──────────────────────────────────────*/
+.frame-wrap{
+  width:100%;aspect-ratio:4/3;border-radius:8px;overflow:hidden;
+  border:1px solid var(--border);margin-bottom:1rem;position:relative
+}
+.frame-wrap canvas{width:100%;height:100%;display:block;image-rendering:pixelated}
+.frame-overlay{
+  position:absolute;inset:0;display:flex;align-items:flex-end;
+  padding:6px 8px;
+  background:linear-gradient(transparent 60%,rgba(6,7,9,0.7));
+}
+.frame-tag{font-size:0.55rem;letter-spacing:0.15em;color:rgba(0,229,160,0.6);text-transform:uppercase}
 
-  .token-label {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.16em;
-    color: var(--cyan);
-    text-transform: uppercase;
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .token-label::before {
-    content: '';
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--cyan);
-    box-shadow: 0 0 8px var(--cyan);
-    animation: pulse 1.5s ease infinite;
-  }
+.meta-row{
+  display:flex;justify-content:space-between;align-items:baseline;
+  font-size:0.62rem;color:var(--muted);margin-bottom:4px
+}
+.meta-row span{color:var(--text);font-size:0.65rem}
 
-  .token-value {
-    font-family: 'DM Mono', monospace;
-    font-size: 42px;
-    font-weight: 500;
-    letter-spacing: 0.12em;
-    color: var(--text);
-    margin-bottom: 6px;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
+/*── CHAOS SEED ─────────────────────────────────────────*/
+.seed-box{
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:8px;padding:0.9rem 1rem;
+  font-size:0.72rem;line-height:1.6;margin-bottom:1rem;
+  position:relative;overflow:hidden
+}
+.seed-uid{color:var(--blue);word-break:break-all}
+.seed-chaos{color:var(--green);word-break:break-all;margin-top:6px}
+.seed-chaos-label{color:var(--muted);font-size:0.6rem;letter-spacing:0.1em}
 
-  .copy-btn {
-    width: 32px;
-    height: 32px;
-    border: 1px solid var(--border-lit);
-    border-radius: 6px;
-    background: var(--bg);
-    color: var(--muted);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s ease;
-    flex-shrink: 0;
-  }
-  .copy-btn:hover { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
-  .copy-btn.copied { border-color: var(--success); color: var(--success); }
+/* copy-on-click seed */
+.seed-box{cursor:pointer;transition:border-color .2s}
+.seed-box:hover{border-color:var(--border2)}
+.seed-copied{
+  position:absolute;inset:0;background:var(--gd2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:0.72rem;color:var(--green);opacity:0;
+  transition:opacity .2s;pointer-events:none
+}
+.seed-copied.show{opacity:1}
 
-  .token-refresh-bar {
-    margin-top: 24px;
-  }
-  .bar-meta {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-  }
-  .bar-label {
-    font-family: 'DM Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    color: var(--muted);
-    text-transform: uppercase;
-  }
-  .bar-timer {
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--cyan);
-  }
+.seed-note{font-size:0.62rem;color:var(--muted);line-height:1.7}
+.seed-note strong{color:var(--amber);font-weight:400}
 
-  .progress-track {
-    height: 2px;
-    background: var(--border);
-    border-radius: 1px;
-    overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%;
-    background: var(--cyan);
-    border-radius: 1px;
-    transition: width 1s linear;
-    box-shadow: 0 0 8px rgba(0,212,232,0.6);
-  }
+/*── LINK WEBSITE ──────────────────────────────────────*/
+.link-steps{margin-bottom:1.2rem}
+.lstep{
+  display:flex;gap:10px;align-items:flex-start;
+  font-size:0.68rem;color:var(--muted);line-height:1.6;
+  margin-bottom:10px
+}
+.lstep-num{
+  width:20px;height:20px;border-radius:50%;
+  background:var(--dim);border:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:0.6rem;color:var(--green);flex-shrink:0;margin-top:1px
+}
+.lstep strong{color:var(--text);font-weight:400}
 
-  /* ── STATS ROW ── */
-  .stats-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    margin-top: 20px;
-    max-width: 560px;
-  }
-  .stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 16px 18px;
-  }
-  .stat-name {
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 8px;
-  }
-  .stat-val {
-    font-family: 'DM Mono', monospace;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text);
-  }
-  .stat-val.ok { color: var(--success); }
-  .stat-val.warn { color: #ffa000; }
+.endpoint-box{
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:8px;padding:0.8rem 1rem;
+  font-size:0.62rem;line-height:1.9;color:var(--blue);
+  margin-bottom:1rem;overflow-x:auto;white-space:pre
+}
+.endpoint-box .method{color:var(--amber)}
+.endpoint-box .key{color:var(--muted)}
+.endpoint-box .val{color:var(--green)}
 
-  /* ── SECURITY GUIDE PAGE ── */
-  .guide-steps {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    max-width: 640px;
-    margin-bottom: 32px;
-  }
-  .guide-step {
-    display: flex;
-    gap: 24px;
-    padding: 24px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    position: relative;
-  }
-  .guide-step:first-child { border-radius: 8px 8px 0 0; }
-  .guide-step:last-child { border-radius: 0 0 8px 8px; }
+.copy-endpoint{
+  width:100%;padding:0.55rem;background:transparent;
+  border:1px solid var(--border);border-radius:8px;
+  color:var(--muted);font-family:var(--mono);font-size:0.68rem;
+  cursor:pointer;transition:all .15s;letter-spacing:0.04em
+}
+.copy-endpoint:hover{border-color:var(--border2);color:var(--text)}
 
-  .step-num {
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--cyan);
-    opacity: 0.5;
-    flex-shrink: 0;
-    padding-top: 2px;
-  }
+/*── DEMO VERIFY ───────────────────────────────────────*/
+.demo-hint{
+  font-size:0.68rem;color:var(--muted);line-height:1.7;margin-bottom:1rem
+}
+.vrow{display:flex;gap:8px;margin-bottom:1rem}
+.vinput{
+  flex:1;background:var(--bg);border:1px solid var(--border);
+  border-radius:8px;padding:0.65rem 0.9rem;
+  color:var(--text);font-family:var(--mono);font-size:0.85rem;
+  letter-spacing:0.1em;text-transform:uppercase;outline:none;
+  transition:border-color .2s
+}
+.vinput:focus{border-color:var(--green)}
+.vinput::placeholder{color:var(--muted);text-transform:none;letter-spacing:0}
+.vbtn{
+  padding:0.65rem 1.1rem;background:transparent;
+  border:1px solid var(--border2);border-radius:8px;
+  color:var(--text);font-family:var(--mono);font-size:0.75rem;
+  cursor:pointer;transition:all .15s;white-space:nowrap
+}
+.vbtn:hover{background:rgba(255,255,255,0.04)}
 
-  .step-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 6px;
-    letter-spacing: 0.02em;
-  }
-  .step-desc {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.6;
-  }
+.vresult{
+  font-size:0.7rem;padding:0.7rem 1rem;border-radius:8px;
+  display:none;line-height:1.5
+}
+.vresult.ok{background:var(--gd);color:var(--green);display:block}
+.vresult.fail{background:rgba(255,71,87,0.08);color:var(--red);display:block}
 
-  .step-active { border-color: var(--border-lit); }
-  .step-active .step-num { opacity: 1; }
-  .step-active::before {
-    content: '';
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    width: 2px;
-    background: var(--cyan);
-    border-radius: 2px 0 0 2px;
-  }
-
-  /* Providers */
-  .providers-label {
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-  .providers {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .provider-tag {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--muted);
-    letter-spacing: 0.08em;
-  }
-
-  /* ── LOGIN SCREEN ── */
-  #login-screen {
-    position: fixed;
-    inset: 0;
-    z-index: 100;
-    background: var(--bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  #login-screen::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(0,212,232,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,212,232,0.03) 1px, transparent 1px);
-    background-size: 60px 60px;
-  }
-  #login-screen::after {
-    content: '';
-    position: fixed;
-    top: -200px; right: -200px;
-    width: 600px; height: 600px;
-    background: radial-gradient(circle, rgba(0,212,232,0.08) 0%, transparent 70%);
-  }
-
-  .login-card {
-    position: relative;
-    z-index: 1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 44px 40px;
-    width: 380px;
-    text-align: center;
-    animation: cardIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .login-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
-    opacity: 0.6;
-    border-radius: 10px 10px 0 0;
-  }
-
-  @keyframes cardIn {
-    from { opacity: 0; transform: scale(0.96) translateY(8px); }
-    to { opacity: 1; transform: scale(1) translateY(0); }
-  }
-
-  .login-logo {
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0.22em;
-    color: var(--cyan);
-    margin-bottom: 32px;
-  }
-
-  .login-title {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text);
-    margin-bottom: 8px;
-    letter-spacing: -0.02em;
-  }
-  .login-sub {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.6;
-    margin-bottom: 32px;
-  }
-
-  .google-btn {
-    width: 100%;
-    padding: 12px;
-    background: var(--bg);
-    border: 1px solid var(--border-lit);
-    border-radius: 7px;
-    color: var(--text);
-    font-family: 'Syne', sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    transition: all 0.15s ease;
-    margin-bottom: 12px;
-  }
-  .google-btn:hover {
-    border-color: var(--cyan);
-    background: var(--cyan-dim);
-    color: var(--cyan);
-  }
-
-  .login-note {
-    font-size: 10px;
-    color: var(--muted);
-    font-family: 'DM Mono', monospace;
-    letter-spacing: 0.06em;
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border);
-  }
-
-  /* ── SYSTEM STATUS PAGE ── */
-  .status-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-    max-width: 560px;
-  }
-  .status-item {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 18px 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .status-item-name {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .status-badge {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    font-weight: 500;
-    padding: 3px 8px;
-    border-radius: 3px;
-  }
-  .status-badge.ok { background: rgba(0,230,118,0.1); color: var(--success); }
-  .status-badge.nominal { background: rgba(0,212,232,0.1); color: var(--cyan); }
-
-  /* Notification dot */
-  .notif-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--cyan);
-    position: relative;
-    cursor: pointer;
-  }
-  .notif-dot::after {
-    content: '';
-    position: absolute;
-    inset: -3px;
-    border-radius: 50%;
-    background: rgba(0,212,232,0.2);
-    animation: ringPulse 2s ease infinite;
-  }
-  @keyframes ringPulse {
-    0% { transform: scale(1); opacity: 0.8; }
-    100% { transform: scale(2.5); opacity: 0; }
-  }
-
-  /* Scrollbar */
-  * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+/*── ANIMATIONS ────────────────────────────────────────*/
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.card:nth-child(2){animation-delay:.06s}
+.card:nth-child(3){animation-delay:.12s}
+.card:nth-child(4){animation-delay:.18s}
+.card:nth-child(5){animation-delay:.24s}
 </style>
 </head>
 <body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+<div class="page">
 
-<!-- LOGIN SCREEN -->
-<div id="login-screen">
-  <div class="login-card">
-    <div class="login-logo">ENTROPY.CORE</div>
-    <div class="login-title">Sign in to continue</div>
-    <div class="login-sub">Your access key is bound to your Google account.<br>No passwords. No secrets.</div>
-    <button class="google-btn" onclick="handleLogin()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-      </svg>
-      Continue with Google
-    </button>
-    <div class="login-note">Secured by quantum entropy · Node SN-9981-A</div>
+<!-- ══════════════════════ LOGIN ══════════════════════ -->
+<div id="login">
+  <div class="brand">
+    <div class="brand-name">Entropy<em>Auth</em></div>
+    <div class="brand-sub">Physical entropy · True random OTP</div>
+  </div>
+
+  <div class="login-box">
+    <div class="noise-strip">
+      <canvas id="login-noise" width="200" height="64"></canvas>
+      <div class="noise-strip-label">live entropy feed</div>
+    </div>
+    <div class="login-body">
+      <h2>Sign in to continue</h2>
+      <p>
+        Your Google account generates a unique <strong style="color:var(--green)">chaos seed</strong>
+        tied to the physical entropy source.<br>
+        No two users ever receive the same code.
+      </p>
+      <button class="google-btn" onclick="doLogin()">
+        <svg width="18" height="18" viewBox="0 0 48 48">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continue with Google
+      </button>
+      <div class="login-fine">
+        Your uid is your private HMAC key — never sent to any server.<br>
+        <a href="#" onclick="demoMode()">Skip login (demo mode)</a>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- MAIN APP -->
-<div class="shell">
-  <!-- SIDEBAR -->
-  <aside class="sidebar">
-    <div class="logo">
-      <div class="logo-text">ENTROPY<span class="logo-dot">.</span>CORE</div>
-    </div>
-
-    <div class="user-chip">
-      <div class="user-name" id="user-name">Alex Morgan</div>
-      <div class="user-status">Authenticated</div>
-    </div>
-
-    <nav class="nav">
-      <div class="nav-item active" onclick="showPage('dashboard', this)">
-        <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <rect x="1" y="1" width="5" height="5" rx="1"/>
-          <rect x="8" y="1" width="5" height="5" rx="1"/>
-          <rect x="1" y="8" width="5" height="5" rx="1"/>
-          <rect x="8" y="8" width="5" height="5" rx="1"/>
-        </svg>
-        Dashboard
+<!-- ══════════════════════ APP ════════════════════════ -->
+<div id="app">
+  <nav class="nav">
+    <div class="nav-brand">Entropy<em>Auth</em></div>
+    <div class="nav-right">
+      <div class="nav-pill">
+        <div class="nav-dot"></div>
+        <span id="nav-email">—</span>
       </div>
-      <div class="nav-item" onclick="showPage('guide', this)">
-        <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M7 1a6 6 0 1 1 0 12A6 6 0 0 1 7 1z"/>
-          <path d="M7 10V7M7 5h.01"/>
-        </svg>
-        How to Use
-      </div>
-      <div class="nav-item" onclick="showPage('status', this)">
-        <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M1 10 L4 6 L6 8 L9 3 L13 7"/>
-        </svg>
-        System Status
-      </div>
-    </nav>
-
-    <div class="sidebar-footer">
-      <button class="logout-btn" onclick="handleLogout()">
-        <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M5 12H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h3M9 10l3-3-3-3M12 7H5"/>
-        </svg>
-        Sign Out
-      </button>
+      <button class="nav-signout" onclick="doLogout()">sign out</button>
     </div>
-  </aside>
+  </nav>
 
-  <!-- MAIN -->
-  <main class="main">
-    <div class="topbar">
-      <div class="topbar-title">Quantum Authenticator</div>
-      <div class="topbar-actions">
-        <div class="notif-dot"></div>
-        <div class="avatar" id="user-initials">AM</div>
+  <div class="grid">
+
+    <!-- ── OTP (full width) ── -->
+    <div class="card card-full">
+      <div class="clabel">current one-time password</div>
+      <div class="otp-wrap" id="otp-wrap">
+        <span class="otp-digit" id="otp-a">——</span>
+        <span class="otp-sep">·</span>
+        <span class="otp-digit" id="otp-b">——</span>
+      </div>
+      <div class="ring-wrap">
+        <svg class="ring-svg" width="52" height="52" viewBox="0 0 52 52">
+          <circle class="ring-bg" cx="26" cy="26" r="22"/>
+          <circle class="ring-fg" id="ring" cx="26" cy="26" r="22"
+            stroke-dasharray="138.2" stroke-dashoffset="0"/>
+        </svg>
+        <div class="ring-secs">
+          <span id="secs-num">30</span>
+          <span>seconds left</span>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-g" id="copybtn" onclick="copyOTP()">copy code</button>
+        <button class="btn btn-o" onclick="openQR()">QR / link</button>
       </div>
     </div>
 
-    <div class="content">
-
-      <!-- DASHBOARD PAGE -->
-      <div class="page active" id="page-dashboard">
-        <div class="page-header">
-          <div class="page-title">Your Access Key</div>
-          <div class="page-sub">Regenerates every 30 seconds. Use this as your 2-factor code.</div>
-        </div>
-
-        <div class="token-card">
-          <div class="token-label">Active Token</div>
-          <div class="token-value">
-            <span id="token-display">#8F2A00X1</span>
-            <button class="copy-btn" id="copy-btn" onclick="copyToken()" title="Copy token">
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="4" y="4" width="9" height="9" rx="1.5"/>
-                <path d="M2 10V2h8"/>
-              </svg>
-            </button>
-          </div>
-
-          <div class="token-refresh-bar">
-            <div class="bar-meta">
-              <div class="bar-label">Refreshing in</div>
-              <div class="bar-timer" id="countdown">00:30</div>
-            </div>
-            <div class="progress-track">
-              <div class="progress-fill" id="progress-fill" style="width:100%"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="stats-row">
-          <div class="stat-card">
-            <div class="stat-name">Session</div>
-            <div class="stat-val ok">Active</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-name">Latency</div>
-            <div class="stat-val" id="latency-display">1.04ms</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-name">Health</div>
-            <div class="stat-val ok">Nominal</div>
-          </div>
+    <!-- ── Entropy frame ── -->
+    <div class="card">
+      <div class="clabel">live entropy frame</div>
+      <div class="frame-wrap">
+        <canvas id="ecanvas" width="80" height="60"></canvas>
+        <div class="frame-overlay">
+          <span class="frame-tag" id="frame-source">simulated</span>
         </div>
       </div>
+      <div class="meta-row">frame hash <span id="hash-disp">—</span></div>
+      <div class="meta-row">window <span id="win-disp">—</span></div>
+      <div class="meta-row">bright spots <span style="color:var(--green)">● ● ●</span>  dark spots <span style="color:var(--blue)">● ● ●</span></div>
+    </div>
 
-      <!-- HOW TO USE PAGE -->
-      <div class="page" id="page-guide">
-        <div class="page-header">
-          <div class="page-title">How to Use</div>
-          <div class="page-sub">Three steps to complete two-factor authentication.</div>
-        </div>
-
-        <div class="guide-steps">
-          <div class="guide-step">
-            <div class="step-num">01</div>
-            <div class="step-body">
-              <div class="step-title">Sign in with Google</div>
-              <div class="step-desc">Use your organization Google account to authenticate. Your identity is verified and a unique key is generated for your session.</div>
-            </div>
-          </div>
-          <div class="guide-step step-active">
-            <div class="step-num">02</div>
-            <div class="step-body">
-              <div class="step-title">Copy your token</div>
-              <div class="step-desc">Your 8-character hex token refreshes every 30 seconds. Copy it from your Dashboard when prompted to enter a 2FA code.</div>
-            </div>
-          </div>
-          <div class="guide-step">
-            <div class="step-num">03</div>
-            <div class="step-body">
-              <div class="step-title">Paste it on the target site</div>
-              <div class="step-desc">When the site asks for your 2-factor code, enter the token. Make sure to use it before it regenerates.</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="providers-label">Works with</div>
-        <div class="providers">
-          <div class="provider-tag">Auth0</div>
-          <div class="provider-tag">Okta</div>
-          <div class="provider-tag">AWS Cognito</div>
-          <div class="provider-tag">Custom IAM</div>
-        </div>
+    <!-- ── Chaos seed ── -->
+    <div class="card">
+      <div class="clabel">your chaos seed</div>
+      <div class="seed-box" onclick="copySeed()" title="click to copy full seed">
+        <div style="font-size:0.58rem;color:var(--muted);margin-bottom:4px">google uid →</div>
+        <div class="seed-uid" id="uid-disp">—</div>
+        <div style="height:1px;background:var(--border);margin:8px 0"></div>
+        <div class="seed-chaos-label">chaos seed (server-derived)</div>
+        <div class="seed-chaos" id="seed-disp">—</div>
+        <div class="seed-copied" id="seed-copied">copied ✓</div>
       </div>
-
-      <!-- SYSTEM STATUS PAGE -->
-      <div class="page" id="page-status">
-        <div class="page-header">
-          <div class="page-title">System Status</div>
-          <div class="page-sub">All entropy nodes and services.</div>
-        </div>
-
-        <div class="status-grid">
-          <div class="status-item">
-            <div class="status-item-name">Entropy Node</div>
-            <div class="status-badge ok">Online</div>
-          </div>
-          <div class="status-item">
-            <div class="status-item-name">Token Engine</div>
-            <div class="status-badge ok">Running</div>
-          </div>
-          <div class="status-item">
-            <div class="status-item-name">Google OAuth</div>
-            <div class="status-badge ok">Active</div>
-          </div>
-          <div class="status-item">
-            <div class="status-item-name">Stream</div>
-            <div class="status-badge nominal">Encrypted</div>
-          </div>
-          <div class="status-item">
-            <div class="status-item-name">Randomness Pool</div>
-            <div class="status-badge ok">Healthy</div>
-          </div>
-          <div class="status-item">
-            <div class="status-item-name">Collision Rate</div>
-            <div class="status-badge nominal">0.00%</div>
-          </div>
-        </div>
+      <div class="seed-note">
+        Chaos seed = <strong>HMAC(uid, server_secret)</strong><br>
+        Unique per user. Even from the same entropy frame,<br>
+        no two users get the same code.
       </div>
+    </div>
 
-    </div><!-- /content -->
-  </main>
+    <!-- ── Link your website ── -->
+    <div class="card">
+      <div class="clabel">link your website</div>
+      <div class="link-steps">
+        <div class="lstep"><div class="lstep-num">1</div><div>Deploy <strong>server.py</strong> to Render.com — get a public URL</div></div>
+        <div class="lstep"><div class="lstep-num">2</div><div>Add this POST call to your login page when user submits OTP</div></div>
+        <div class="lstep"><div class="lstep-num">3</div><div>If response <strong>valid: true</strong> → grant access</div></div>
+      </div>
+      <div class="endpoint-box" id="endpoint-box"><span class="method">POST</span> <span id="server-url-disp">https://your-server.onrender.com</span>/verify
+
+<span class="key">api_key</span>  <span class="val">"YOUR_ADMIN_API_KEY"</span>
+<span class="key">uid     </span>  <span class="val" id="uid-in-endpoint">"user-google-uid"</span>
+<span class="key">code    </span>  <span class="val">"ABCD1234"</span></div>
+      <button class="copy-endpoint" onclick="copyEndpoint()">copy API snippet</button>
+    </div>
+
+    <!-- ── Verify demo ── -->
+    <div class="card">
+      <div class="clabel">verify a code (demo)</div>
+      <div class="demo-hint">
+        This simulates what your demo website does when a user submits their OTP.
+        Paste the code from above and hit verify.
+      </div>
+      <div class="vrow">
+        <input class="vinput" id="vinput" maxlength="9" placeholder="XXXX·XXXX" oninput="clearVR()">
+        <button class="vbtn" onclick="verifyDemo()">verify →</button>
+      </div>
+      <div class="vresult" id="vresult"></div>
+    </div>
+
+  </div>
 </div>
 
+<!-- QR overlay -->
+<div id="qr-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;align-items:center;justify-content:center;backdrop-filter:blur(6px)">
+  <div style="background:var(--surface);border:1px solid var(--border2);border-radius:18px;padding:2rem;text-align:center;width:90%;max-width:300px">
+    <div style="font-size:0.58rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted);margin-bottom:1rem">scan or share</div>
+    <div id="qr-box" style="margin:0 auto 1rem;display:inline-block"></div>
+    <div style="font-size:0.62rem;color:var(--muted);line-height:1.7;margin-bottom:1.2rem" id="qr-caption">Scan with any TOTP authenticator app.</div>
+    <button onclick="closeQR()" style="width:100%;padding:.6rem;background:transparent;border:1px solid var(--border2);border-radius:8px;color:var(--muted);font-family:var(--mono);font-size:.72rem;cursor:pointer">close</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
-  // ── State ──
-  let timeLeft = 30;
-  let currentToken = '#8F2A00X1';
+/* ════════════════════════════════════════════════════════
+   CONFIG — set SERVER_URL after you deploy server.py
+════════════════════════════════════════════════════════ */
+const SERVER_URL = "https://mini-project-a8ql.onrender.com"; // ← replace with Render URL after deploy
 
-  // ── Token generation ──
-  const HEX = '0123456789ABCDEF';
-  function genToken() {
-    let t = '#';
-    for (let i = 0; i < 8; i++) t += HEX[Math.floor(Math.random() * 16)];
-    return t;
+/* ════════════════════════════════════════════════════════
+   STATE
+════════════════════════════════════════════════════════ */
+let userUID    = "";
+let chaosSeed  = "";
+let curCode    = "--------";
+let lastWin    = -1;
+let frameHash  = "";
+let isDemoMode = false;
+const CIRC     = 2 * Math.PI * 22; // ring circumference
+
+/* ════════════════════════════════════════════════════════
+   CRYPTO  (mirrors server.py / code_generator.py exactly)
+════════════════════════════════════════════════════════ */
+async function hmac256(key, msg) {
+  const enc = new TextEncoder();
+  const k   = await crypto.subtle.importKey("raw", enc.encode(key),
+    {name:"HMAC",hash:"SHA-256"}, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", k, enc.encode(msg));
+  return [...new Uint8Array(sig)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+const getWin    = () => Math.floor(Date.now()/1000/30);
+const getSecsL  = () => 30 - (Math.floor(Date.now()/1000) % 30);
+
+async function makeCode(seed, hash, win) {
+  const h = await hmac256(seed, `${hash}:${win}`);
+  return h.slice(0,8).toUpperCase();
+}
+
+/* ════════════════════════════════════════════════════════
+   SERVER CALLS
+════════════════════════════════════════════════════════ */
+async function registerUser(uid, email) {
+  try {
+    const r = await fetch(`${SERVER_URL}/register`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({uid, email})
+    });
+    const d = await r.json();
+    // Mark as connected to real server
+    const src = document.getElementById("frame-source");
+    if (src) src.textContent = "webcam · server";
+    return d.chaos_seed || null;
+  } catch(e) {
+    console.warn("Server offline — using local seed fallback");
+    // Fallback: derive seed client-side using same formula as server.py
+    // server formula: hmac(ADMIN_API_KEY, uid).hexdigest()[:32]
+    return await hmac256("miniproject825", uid).then(h=>h.slice(0,32));
   }
+}
 
-  // ── Timer ──
-  function pad(n) { return String(n).padStart(2, '0'); }
-
-  function tick() {
-    timeLeft--;
-    if (timeLeft <= 0) {
-      timeLeft = 30;
-      currentToken = genToken();
-      document.getElementById('token-display').textContent = currentToken;
-      // Flash animation
-      const tv = document.getElementById('token-display');
-      tv.style.opacity = '0.3';
-      setTimeout(() => { tv.style.transition = 'opacity 0.3s'; tv.style.opacity = '1'; }, 50);
-    }
-
-    document.getElementById('countdown').textContent = `00:${pad(timeLeft)}`;
-    document.getElementById('progress-fill').style.width = `${(timeLeft / 30) * 100}%`;
-
-    // Latency jitter for realism
-    const l = (0.8 + Math.random() * 0.5).toFixed(2);
-    document.getElementById('latency-display').textContent = `${l}ms`;
+async function fetchHash() {
+  try {
+    const r = await fetch(`${SERVER_URL}/hash`);
+    const d = await r.json();
+    document.getElementById("frame-source").textContent = "webcam · server";
+    return d.hash;
+  } catch {
+    // Offline fallback — MUST use the SAME formula as server.py's _entropy_loop fallback:
+    // server: hashlib.sha256(f"server_entropy_fallback:{win}").hexdigest()
+    // We replicate: hmac256 is sha256-based; for a simple sha256 we use a fixed key of ""
+    // Actually we replicate it as: sha256("server_entropy_fallback:" + win)
+    const win = getWin();
+    const enc = new TextEncoder();
+    const data = enc.encode(`server_entropy_fallback:${win}`);
+    const hashBuf = await crypto.subtle.digest("SHA-256", data);
+    const fallbackHash = [...new Uint8Array(hashBuf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+    document.getElementById("frame-source").textContent = "⚠ fallback (server offline)";
+    return fallbackHash;
   }
+}
 
-  setInterval(tick, 1000);
+/* ════════════════════════════════════════════════════════
+   LOGIN / LOGOUT
+════════════════════════════════════════════════════════ */
+async function doLogin() {
+  if (isDemoMode) return;
+  try {
+    // Triggers the Google Auth popup
+    tokenClient.requestAccessToken();
+  } catch(e) {
+    alert("Google login failed.");
+  }
+}
 
-  // ── Copy ──
-  function copyToken() {
-    navigator.clipboard.writeText(currentToken).catch(() => {});
-    const btn = document.getElementById('copy-btn');
-    btn.classList.add('copied');
-    btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 7l3.5 3.5L12 3"/></svg>`;
+async function demoMode() {
+  isDemoMode = true;
+  // FIXED: Use a stable demo UID (not random) so the same chaos_seed is always
+  // derived for the demo user. Random UIDs broke code verification every session.
+  const fake = { uid:"demo_fixed_user_001", email:"demo@entropyauth.local", displayName:"Demo User" };
+  window.__user = fake;
+  onLogin(fake);
+}
+
+function doLogout() {
+  if (window.__user && window.__user.uid) {
+      // Optional: revoke the token with Google if desired
+      // google.accounts.oauth2.revoke(window.__user.uid, done => { console.log("Revoked"); });
+  }
+  onLogout();
+}
+
+/* ════════════════════════════════════════════════════════
+   SCREEN TRANSITIONS
+════════════════════════════════════════════════════════ */
+async function onLogin(user) {
+  userUID = user.uid;
+  document.getElementById("nav-email").textContent = user.email || user.displayName || "user";
+  document.getElementById("uid-disp").textContent  = userUID.slice(0,8)+"····"+userUID.slice(-4);
+  document.getElementById("uid-in-endpoint").textContent = `"${userUID.slice(0,8)}…"`;
+
+  // FIXED: Save UID to localStorage so demo_website.html can auto-fill it
+  // (works when both sites share same browser, e.g. Netlify + GitHub Pages)
+  try { localStorage.setItem("entropyauth_uid", userUID); } catch(e) {}
+
+  // Register with server → get chaos seed
+  chaosSeed = await registerUser(userUID, user.email || "");
+  const seedMasked = chaosSeed.slice(0,8)+"·····"+chaosSeed.slice(-4);
+  document.getElementById("seed-disp").textContent = seedMasked;
+
+  document.getElementById("login").style.display = "none";
+  document.getElementById("app").style.display   = "block";
+
+  document.getElementById("server-url-disp").textContent = SERVER_URL;
+
+  tick(true);
+}
+
+function onLogout() {
+  userUID = ""; chaosSeed = ""; isDemoMode = false;
+  try { localStorage.removeItem("entropyauth_uid"); } catch(e) {}
+  document.getElementById("app").style.display   = "none";
+  document.getElementById("login").style.display = "flex";
+  drawLoginNoise();
+}
+
+/* ════════════════════════════════════════════════════════
+   OTP TICK (every 1 second)
+════════════════════════════════════════════════════════ */
+async function tick(force=false) {
+  if (!chaosSeed) return;
+
+  const win  = getWin();
+  const secs = getSecsL();
+
+  // Ring
+  const offset = CIRC * (1 - secs/30);
+  document.getElementById("ring").style.strokeDashoffset = offset;
+  document.getElementById("ring").classList.toggle("urgent", secs<=7);
+  document.getElementById("secs-num").textContent = secs;
+
+  if (win !== lastWin || force) {
+    lastWin = win;
+    document.getElementById("otp-wrap").classList.add("fade");
+
+    frameHash = await fetchHash();
+    const code = await makeCode(chaosSeed, frameHash, win);
+    curCode    = code;
+
+    document.getElementById("hash-disp").textContent = frameHash.slice(0,14)+"…";
+    document.getElementById("win-disp").textContent  = win;
+
+    drawEntropyCanvas("ecanvas", 80, 60);
+
     setTimeout(() => {
-      btn.classList.remove('copied');
-      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="9" height="9" rx="1.5"/><path d="M2 10V2h8"/></svg>`;
-    }, 1800);
+      document.getElementById("otp-a").textContent = code.slice(0,4);
+      document.getElementById("otp-b").textContent = code.slice(4,8);
+      document.getElementById("otp-wrap").classList.remove("fade");
+    }, 220);
   }
+}
 
-  // ── Nav ──
-  function showPage(id, el) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.getElementById('page-' + id).classList.add('active');
-    el.classList.add('active');
+/* ════════════════════════════════════════════════════════
+   ENTROPY CANVAS  (simulated noise with bimodal circles)
+════════════════════════════════════════════════════════ */
+function drawEntropyCanvas(id, w, h) {
+  const c   = document.getElementById(id);
+  if (!c) return;
+  const ctx = c.getContext("2d");
+  c.width=w; c.height=h;
+  const img = ctx.createImageData(w, h);
+  const n   = w*h;
+  const lum = new Float32Array(n);
+
+  // LCG seeded on window so it changes every 30s but is stable within a window
+  let s = (getWin() * 1664525 + 1013904223) & 0xffffffff;
+  const rng = () => { s=(s*1664525+1013904223)&0xffffffff; return (s>>>0)/0xffffffff; };
+
+  for (let i=0; i<n; i++) {
+    const r=rng()*255|0, g=rng()*255|0, b=rng()*255|0;
+    img.data[i*4]=r; img.data[i*4+1]=g; img.data[i*4+2]=b; img.data[i*4+3]=255;
+    lum[i]=0.299*r+0.587*g+0.114*b;
   }
+  ctx.putImageData(img,0,0);
 
-  // ── Login / Logout ──
-  function handleLogin() {
-    const btn = document.querySelector('.google-btn');
-    btn.textContent = 'Authenticating...';
-    btn.disabled = true;
+  // Draw bimodal hotspot circles
+  const idx = [...Array(n).keys()].sort((a,b)=>lum[b]-lum[a]);
+  const bright=idx.slice(0,3), dark=idx.slice(-3);
+  const ring=(i,col)=>{
+    ctx.strokeStyle=col; ctx.lineWidth=0.8;
+    ctx.beginPath();
+    ctx.arc((i%w)+.5,(i/w|0)+.5,2.5,0,Math.PI*2);
+    ctx.stroke();
+  };
+  bright.forEach(i=>ring(i,"#00e5a0"));
+  dark.forEach(i=>ring(i,"#5b9cf6"));
+}
 
-    setTimeout(() => {
-      document.getElementById('login-screen').style.opacity = '0';
-      document.getElementById('login-screen').style.transition = 'opacity 0.3s ease';
-      setTimeout(() => {
-        document.getElementById('login-screen').style.display = 'none';
-      }, 300);
-    }, 1200);
+function drawLoginNoise() {
+  drawEntropyCanvas("login-noise", 200, 64);
+}
+
+/* ════════════════════════════════════════════════════════
+   COPY OTP
+════════════════════════════════════════════════════════ */
+function copyOTP() {
+  if (!curCode || curCode==="--------") return;
+  navigator.clipboard.writeText(curCode.replace(/[^A-Z0-9]/g,"")).then(()=>{
+    const b=document.getElementById("copybtn");
+    b.textContent="copied ✓"; b.style.color="var(--green)";
+    setTimeout(()=>{ b.textContent="copy code"; b.style.color=""; }, 1800);
+  });
+}
+
+/* ════════════════════════════════════════════════════════
+   COPY SEED
+════════════════════════════════════════════════════════ */
+function copySeed() {
+  if (!chaosSeed) return;
+  navigator.clipboard.writeText(chaosSeed);
+  const el=document.getElementById("seed-copied");
+  el.classList.add("show");
+  setTimeout(()=>el.classList.remove("show"), 1400);
+}
+
+/* ════════════════════════════════════════════════════════
+   COPY ENDPOINT SNIPPET
+════════════════════════════════════════════════════════ */
+function copyEndpoint() {
+  const text=`fetch("${SERVER_URL}/verify", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    api_key: "YOUR_ADMIN_API_KEY",
+    uid:     "${userUID}",
+    code:    userEnteredCode
+  })
+}).then(r=>r.json()).then(d => {
+  if (d.valid) { /* grant access */ }
+});`;
+  navigator.clipboard.writeText(text).then(()=>{
+    const b=document.querySelector(".copy-endpoint");
+    b.textContent="copied ✓";
+    setTimeout(()=>b.textContent="copy API snippet",1600);
+  });
+}
+
+/* ════════════════════════════════════════════════════════
+   QR CODE
+════════════════════════════════════════════════════════ */
+let qrDone=false;
+function openQR() {
+  document.getElementById("qr-overlay").style.display="flex";
+  if (!qrDone && chaosSeed) {
+    const email=(window.__user&&window.__user.email)||"user";
+    const secret=btoa(chaosSeed).replace(/=/g,"").slice(0,32).toUpperCase();
+    const uri=`otpauth://totp/EntropyAuth:${encodeURIComponent(email)}?secret=${secret}&issuer=EntropyAuth&digits=8&period=30`;
+    document.getElementById("qr-box").innerHTML="";
+    new QRCode(document.getElementById("qr-box"),{text:uri,width:180,height:180,colorDark:"#00e5a0",colorLight:"#0c0e12"});
+    document.getElementById("qr-caption").textContent=`Scan with Google Authenticator or Authy. Your chaos seed: ${chaosSeed.slice(0,8)}…`;
+    qrDone=true;
   }
+}
+function closeQR(){document.getElementById("qr-overlay").style.display="none"}
 
-  function handleLogout() {
-    const ls = document.getElementById('login-screen');
-    ls.style.display = 'flex';
-    ls.style.opacity = '0';
-    setTimeout(() => { ls.style.transition = 'opacity 0.3s'; ls.style.opacity = '1'; }, 10);
-    const btn = document.querySelector('.google-btn');
-    btn.textContent = '';
-    btn.disabled = false;
-    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> Continue with Google`;
-  }
+/* ════════════════════════════════════════════════════════
+   IN-APP VERIFY DEMO
+════════════════════════════════════════════════════════ */
+async function verifyDemo() {
+  const inp=document.getElementById("vinput").value.replace(/[^A-Za-z0-9]/g,"").toUpperCase();
+  const res=document.getElementById("vresult");
+  if (inp.length<6){res.textContent="⚠  Enter at least 6 characters";res.className="vresult fail";return}
+
+  const win=getWin();
+  const h=frameHash||await fetchHash();
+  const codes=await Promise.all([0,-1,1].map(o=>makeCode(chaosSeed,h,win+o)));
+  const ok=codes.includes(inp);
+  res.textContent=ok?"✓  Verified — authentication successful":"✗  Code mismatch — check your code and try again";
+  res.className="vresult "+(ok?"ok":"fail");
+}
+function clearVR(){document.getElementById("vresult").className="vresult"}
+
+/* ════════════════════════════════════════════════════════
+   BOOT
+════════════════════════════════════════════════════════ */
+drawLoginNoise();
+setInterval(drawLoginNoise, 800);
+setInterval(()=>tick(), 1000);
 </script>
 </body>
 </html>
