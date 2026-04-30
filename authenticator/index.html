@@ -406,7 +406,7 @@ body::after{
         </svg>
         Continue with Google
       </button>
-      <div class="login-fine">
+      <div class="login-fine" style="display: none;">
         Your uid is your private HMAC key — never sent to any server.<br>
         <a href="#" onclick="demoMode()">Skip login (demo mode)</a>
       </div>
@@ -469,7 +469,7 @@ body::after{
     </div>
 
     <!-- ── Chaos seed ── -->
-    <div class="card">
+    <div class="card" style="display: none;">
       <div class="clabel">your chaos seed</div>
       <div class="seed-box" onclick="copySeed()" title="click to copy full seed">
         <div style="font-size:0.58rem;color:var(--muted);margin-bottom:4px">google uid →</div>
@@ -487,7 +487,7 @@ body::after{
     </div>
 
     <!-- ── Link your website ── -->
-    <div class="card">
+    <div class="card" style="display: none;">
       <div class="clabel">link your website</div>
       <div class="link-steps">
         <div class="lstep"><div class="lstep-num">1</div><div>Deploy <strong>server.py</strong> to Render.com — get a public URL</div></div>
@@ -503,7 +503,7 @@ body::after{
     </div>
 
     <!-- ── Verify demo ── -->
-    <div class="card">
+    <div class="card" style="display: none;">
       <div class="clabel">verify a code (demo)</div>
       <div class="demo-hint">
         This simulates what your demo website does when a user submits their OTP.
