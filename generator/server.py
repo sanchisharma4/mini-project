@@ -40,15 +40,20 @@ def save_users(users: dict) -> None:
 # ── Entropy state ─────────────────────────────────────────────────────────────
 # generate_code.py pushes the local photo hash here via POST /upload-hash.
 # GET /hash returns it to the browser so BOTH sides use the exact same value.
-_latest_hash = {"value": None, "window": -1}
+# uploaded_at lets us expire the hash when generate_code.py stops running.
+HASH_TTL     = 35   # seconds — slightly longer than the 30s capture interval
+_latest_hash = {"value": None, "window": -1, "uploaded_at": 0}
 _hash_lock   = threading.Lock()
 
 def _get_current_hash_and_window():
     with _hash_lock:
-        h = _latest_hash["value"]
-        w = _latest_hash["window"]
+        h  = _latest_hash["value"]
+        w  = _latest_hash["window"]
+        ua = _latest_hash["uploaded_at"]
     if h is None:
-        # Nothing uploaded yet — return None so browser knows no image clicked yet
+        return None, int(time.time()) // 30
+    # Expire if generate_code.py hasn't pushed a fresh hash within TTL seconds
+    if time.time() - ua > HASH_TTL:
         return None, int(time.time()) // 30
     return h, w
 
@@ -79,10 +84,11 @@ def get_hash():
     h, w      = _get_current_hash_and_window()
     secs_left = 30 - (int(time.time()) % 30)
     return jsonify({
-        "hash":       h,          # null if no image clicked yet
-        "window":     w,
+        "hash":         h,
+        "window":       w,
         "seconds_left": secs_left,
-        "ready":      h is not None   # browser checks this
+        "ready":        h is not None,
+        "active":       h is not None   # False when generator has stopped
     })
 
 
@@ -106,8 +112,9 @@ def upload_hash():
 
     win = int(time.time()) // 30
     with _hash_lock:
-        _latest_hash["value"]  = new_hash
-        _latest_hash["window"] = win
+        _latest_hash["value"]       = new_hash
+        _latest_hash["window"]      = win
+        _latest_hash["uploaded_at"] = time.time()
 
     # Log to terminal with all user codes so you can see them immediately
     users = load_users()

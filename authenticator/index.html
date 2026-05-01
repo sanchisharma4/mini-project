@@ -463,12 +463,12 @@ async function registerUser(uid, email) {
 }
 
 /* Polls the server for the latest hash uploaded by generate_code.py.
-   Returns null if no image has been captured yet.                    */
+   Returns null if no image has been captured yet, or generator stopped. */
 async function fetchHash() {
   try {
     const r = await fetch(`${SERVER_URL}/hash`);
     const d = await r.json();
-    if (!d.ready || !d.hash) return null;
+    if (!d.active || !d.hash) return null;
     return d.hash;
   } catch {
     return null;
@@ -476,17 +476,29 @@ async function fetchHash() {
 }
 
 /* ── Auto-refresh loop (replaces manual click) ───────────────────────────── */
+let _generatorWasActive = false;
+
 async function autoRefresh() {
   if (!chaosSeed) return;
 
   const serverHash = await fetchHash();
 
   if (!serverHash) {
-    // generate_code.py hasn't run yet — show waiting state
-    setStatus("Waiting for entropy source…");
+    // Generator stopped or never started — clear code immediately
+    if (_generatorWasActive || frameHash !== null) {
+      _generatorWasActive = false;
+      frameHash = null;
+      curCode   = "--------";
+      lastWin   = -1;
+      document.getElementById("otp-a").textContent = "——";
+      document.getElementById("otp-b").textContent = "——";
+      setStatus("generator offline");
+      document.getElementById("hash-disp").textContent = "—";
+    }
     return;
   }
 
+  _generatorWasActive = true;
   const win = getWin();
 
   // Only regenerate when hash or window changed
