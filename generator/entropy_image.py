@@ -4,14 +4,14 @@ import time
 import os
 import zlib
 import struct
+import json
 
-# cv2 is used ONLY for webcam capture (one line).
-# Everything else — PNG writing, circle drawing, hotspot detection — is pure numpy/stdlib.
 import cv2
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 NOISE_DIR   = os.path.join(BASE_DIR, "noise_frames")
 ACTUAL_DIR  = os.path.join(BASE_DIR, "actual_images")
+CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
 os.makedirs(NOISE_DIR,  exist_ok=True)
 os.makedirs(ACTUAL_DIR, exist_ok=True)
@@ -40,24 +40,92 @@ def _write_png(pixels: np.ndarray, path: str):
 
 
 # ------------------------------------------------------------------ #
-#  Webcam capture                                                      #
+#  THE canonical hash function — used everywhere                       #
+# ------------------------------------------------------------------ #
+
+def hash_pixels(pixels: np.ndarray) -> str:
+    """
+    SHA-256 of raw pixel bytes (tobytes()).
+    Every part of the system must call THIS function — never hash file
+    bytes directly — so the hash is always identical no matter who
+    computes it (server, CLI, local photo path).
+    """
+    return hashlib.sha256(pixels.tobytes()).hexdigest()
+
+
+# ------------------------------------------------------------------ #
+#  Load any local image file as a normalised 320x240 RGB array        #
+# ------------------------------------------------------------------ #
+
+def load_image_as_rgb(image_path: str, width: int = 320, height: int = 240) -> np.ndarray:
+    """
+    Load a JPEG / PNG / etc. from disk, resize to (width x height),
+    and return as RGB uint8 numpy array.
+    Raises FileNotFoundError if OpenCV cannot open the file.
+    """
+    img = cv2.imread(image_path)
+    if img is None:
+        raise FileNotFoundError(f"Could not load image: {image_path}")
+    rgb     = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    resized = cv2.resize(rgb, (width, height), interpolation=cv2.INTER_AREA)
+    return resized.astype(np.uint8)
+
+
+# ------------------------------------------------------------------ #
+#  Public: hash a local photo file                                     #
+# ------------------------------------------------------------------ #
+
+def hash_image_file(image_path: str) -> str:
+    """
+    Load a local image, normalise it to 320x240 RGB, and return
+    SHA-256 of the raw pixel bytes via hash_pixels().
+
+    Called by code_generator.py when the user picks a photo.
+    The server stores the same hash so the browser code matches.
+    """
+    pixels = load_image_as_rgb(image_path, width=320, height=240)
+    return hash_pixels(pixels)
+
+
+# ------------------------------------------------------------------ #
+#  Upload hash to Render server                                        #
+# ------------------------------------------------------------------ #
+
+def upload_hash_to_server(frame_hash: str, server_url: str, admin_key: str) -> bool:
+    """
+    Push the locally-computed frame hash to the Render server so that
+    the browser's /hash endpoint returns the same value.
+
+    POST /upload-hash  { "hash": "<64-char hex>", "admin_key": "<key>" }
+    Returns True on success, False on any error.
+    """
+    import urllib.request
+    payload = json.dumps({"hash": frame_hash, "admin_key": admin_key}).encode("utf-8")
+    req = urllib.request.Request(
+        url     = f"{server_url}/upload-hash",
+        data    = payload,
+        headers = {"Content-Type": "application/json"},
+        method  = "POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read())
+            return body.get("ok", False)
+    except Exception as e:
+        print(f"[WARN] Could not upload hash to server: {e}")
+        return False
+
+
+# ------------------------------------------------------------------ #
+#  Webcam capture (used by server loop)                                #
 # ------------------------------------------------------------------ #
 
 def _capture_frame(width: int = 320, height: int = 240) -> np.ndarray:
-    """
-    Grab one frame from the default webcam and return it as an RGB uint8
-    numpy array of shape (height, width, 3).
-
-    Falls back to pure random noise if no camera is found — so the rest of
-    the pipeline always works even on a headless machine.
-    """
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("[WARN] No webcam found — using random noise as fallback.")
         return np.random.randint(0, 256, (height, width, 3), dtype=np.uint8)
 
-    # Discard the first few frames; many cameras need a moment to stabilise
-    # exposure / white-balance before the image is meaningful.
     for _ in range(3):
         cap.read()
 
@@ -68,8 +136,7 @@ def _capture_frame(width: int = 320, height: int = 240) -> np.ndarray:
         print("[WARN] Frame capture failed — using random noise as fallback.")
         return np.random.randint(0, 256, (height, width, 3), dtype=np.uint8)
 
-    # OpenCV gives BGR; convert to RGB then resize to target resolution.
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     resized = cv2.resize(rgb, (width, height), interpolation=cv2.INTER_AREA)
     return resized.astype(np.uint8)
 
@@ -79,40 +146,17 @@ def _capture_frame(width: int = 320, height: int = 240) -> np.ndarray:
 # ------------------------------------------------------------------ #
 
 def _find_bimodal_hotspots(pixels: np.ndarray, count: int = 5):
-    """
-    Find the `count` brightest AND `count` darkest pixel positions using
-    luminance (perceptually weighted grayscale), avoiding duplicates.
-
-    Why bimodal?
-    ─────────────
-    Entropy comes from the FULL distribution of pixel values, not just
-    the bright end.  Marking both extremes makes the randomness argument
-    visually obvious to an examiner:
-
-        • Yellow circles  →  high-luminance hotspots  (lots of light energy)
-        • Cyan  circles   →  low-luminance  coldspots  (near-black regions)
-
-    Both sets of pixels are already baked into the SHA-256 hash of the
-    entire frame, so the circles are annotations, not the source of entropy.
-
-    Perceptual luminance weights (ITU-R BT.601):
-        L = 0.299·R + 0.587·G + 0.114·B
-    """
     R = pixels[:, :, 0].astype(np.float32)
     G = pixels[:, :, 1].astype(np.float32)
     B = pixels[:, :, 2].astype(np.float32)
-    lum = 0.299 * R + 0.587 * G + 0.114 * B   # shape: (H, W), float32
-
+    lum  = 0.299 * R + 0.587 * G + 0.114 * B
     flat = lum.ravel()
     h, w = lum.shape
 
-    # Brightest pixels (descending)
     bright_idx = np.argsort(flat)[::-1]
-    # Darkest pixels (ascending)
     dark_idx   = np.argsort(flat)
 
-    bright_spots = []
-    dark_spots   = []
+    bright_spots, dark_spots = [], []
     seen = set()
 
     for idx in bright_idx:
@@ -133,8 +177,7 @@ def _find_bimodal_hotspots(pixels: np.ndarray, count: int = 5):
 # ------------------------------------------------------------------ #
 
 def _draw_circle(pixels: np.ndarray, cy: int, cx: int, radius: int, color: tuple):
-    """Draw a hollow circle on pixels in-place using the midpoint algorithm."""
-    h, w = pixels.shape[:2]
+    h, w      = pixels.shape[:2]
     color_arr = np.array(color, dtype=np.uint8)
     x, y, err = radius, 0, 0
     while x >= y:
@@ -142,92 +185,73 @@ def _draw_circle(pixels: np.ndarray, cy: int, cx: int, radius: int, color: tuple
             pr, pc = cy + dy, cx + dx
             if 0 <= pr < h and 0 <= pc < w:
                 pixels[pr, pc] = color_arr
-        y += 1
+        y   += 1
         err += 2 * y + 1
         if 2 * (err - x) + 1 > 0:
-            x -= 1
+            x   -= 1
             err += 1 - 2 * x
 
 
-def _annotate_image(pixels: np.ndarray,
-                    bright_spots: list,
-                    dark_spots: list) -> np.ndarray:
-    """
-    Scale the captured image up to 960×720 so it is comfortable to view,
-    then annotate:
-
-        Yellow  rings  →  bright hotspots  (high luminance)
-        Cyan    rings  →  dark  coldspots  (low  luminance)
-
-    Three concentric rings per point give a visible halo without hiding
-    the underlying pixel colour.
-    """
-    # Original size is 320×240; scale factor 3 → 960×720
+def _annotate_image(pixels: np.ndarray, bright_spots: list, dark_spots: list) -> np.ndarray:
     scale = 3
-    big = np.repeat(np.repeat(pixels, scale, axis=0), scale, axis=1).copy()
-
-    YELLOW = (255, 220,   0)   # bright hotspot colour
-    CYAN   = (  0, 220, 255)   # dark  coldspot colour
+    big   = np.repeat(np.repeat(pixels, scale, axis=0), scale, axis=1).copy()
+    YELLOW = (255, 220,   0)
+    CYAN   = (  0, 220, 255)
 
     for row, col in bright_spots:
-        cy = row * scale + scale // 2
-        cx = col * scale + scale // 2
-        for r, alpha_color in [(10, YELLOW), (11, (200, 170, 0)), (12, (150, 120, 0))]:
-            _draw_circle(big, cy, cx, r, alpha_color)
+        cy, cx = row * scale + scale // 2, col * scale + scale // 2
+        for r, c in [(10, YELLOW), (11, (200, 170, 0)), (12, (150, 120, 0))]:
+            _draw_circle(big, cy, cx, r, c)
 
     for row, col in dark_spots:
-        cy = row * scale + scale // 2
-        cx = col * scale + scale // 2
-        for r, alpha_color in [(10, CYAN), (11, (0, 170, 200)), (12, (0, 120, 150))]:
-            _draw_circle(big, cy, cx, r, alpha_color)
+        cy, cx = row * scale + scale // 2, col * scale + scale // 2
+        for r, c in [(10, CYAN), (11, (0, 170, 200)), (12, (0, 120, 150))]:
+            _draw_circle(big, cy, cx, r, c)
 
     return big
 
 
 # ------------------------------------------------------------------ #
-#  Public API                                                          #
+#  Full webcam pipeline (used by server entropy loop)                  #
 # ------------------------------------------------------------------ #
 
 def generate_entropy_image() -> tuple:
     """
-    Full pipeline (called every 30 seconds by run_loop):
-
-        1.  Capture a real webcam frame  (320 × 240 RGB)
-        2.  Save raw frame  →  noise_frames/frame_<timestamp>.png
-        3.  SHA-256 hash of raw pixel bytes  →  frame_hash
-        4.  Find 5 brightest + 5 darkest pixels (bimodal hotspots)
-        5.  Scale frame × 3 and annotate with yellow / cyan rings
-        6.  Save annotated  →  actual_images/annotated_<timestamp>.png
-        7.  Return (frame_hash, raw_path, annotated_path)
-
-    The hash is derived from ALL pixels, not just the hotspot pixels.
-    The circles are a visual proof-of-randomness aid, not the entropy source.
+    1. Capture webcam frame (320x240 RGB)
+    2. Save raw frame  → noise_frames/
+    3. hash_pixels()   → frame_hash   ✅ canonical hash
+    4. Bimodal hotspots
+    5. Annotate + save → actual_images/
+    6. Return (frame_hash, raw_path, annotated_path)
     """
     timestamp = time.strftime("%Y%m%d_%H%M%S")
 
-    # Step 1 & 2 — capture + save raw
-    pixels = _capture_frame(width=320, height=240)
+    pixels   = _capture_frame(width=320, height=240)
     raw_path = os.path.join(NOISE_DIR, f"frame_{timestamp}.png")
     _write_png(pixels, raw_path)
 
-    # Step 3 — hash entire frame
-    frame_hash = hashlib.sha256(pixels.tobytes()).hexdigest()
+    frame_hash = hash_pixels(pixels)   # ✅ always pixel bytes
 
-    # Step 4 — bimodal hotspot detection
     bright_spots, dark_spots = _find_bimodal_hotspots(pixels, count=5)
 
-    # Step 5 & 6 — annotate and save
-    annotated = _annotate_image(pixels, bright_spots, dark_spots)
+    annotated   = _annotate_image(pixels, bright_spots, dark_spots)
     actual_path = os.path.join(ACTUAL_DIR, f"annotated_{timestamp}.png")
     _write_png(annotated, actual_path)
 
     return frame_hash, raw_path, actual_path
 
 
+# ------------------------------------------------------------------ #
+#  get_latest_frame_hash — used by code_generator.py (webcam mode)    #
+# ------------------------------------------------------------------ #
+
 def get_latest_frame_hash() -> str:
     """
-    Returns the SHA-256 hash of the most recently saved raw webcam frame.
-    Called by code_generator.py to derive the time-window OTP.
+    Returns SHA-256 pixel hash of the most recently saved raw webcam frame.
+
+    ✅ FIX: loads PNG pixels via OpenCV then calls hash_pixels().
+    The old code called hashlib.sha256(file_bytes) which gave a
+    completely different digest from generate_entropy_image().
     """
     files = sorted(
         [f for f in os.listdir(NOISE_DIR) if f.endswith(".png")],
@@ -239,13 +263,17 @@ def get_latest_frame_hash() -> str:
             "Run entropy_image.py first to populate the folder."
         )
     latest_path = os.path.join(NOISE_DIR, files[0])
-    with open(latest_path, "rb") as f:
-        raw = f.read()
-    return hashlib.sha256(raw).hexdigest()
+
+    img     = cv2.imread(latest_path)
+    rgb     = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    resized = cv2.resize(rgb, (320, 240), interpolation=cv2.INTER_AREA)
+    pixels  = resized.astype(np.uint8)
+
+    return hash_pixels(pixels)
 
 
 # ------------------------------------------------------------------ #
-#  Run loop                                                            #
+#  Run loop (standalone: webcam every 30 s)                           #
 # ------------------------------------------------------------------ #
 
 def run_loop():
