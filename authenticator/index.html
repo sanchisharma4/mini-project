@@ -423,9 +423,9 @@ body::before {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ════════════════════════════════════════════════════════
-   CONFIG — set SERVER_URL after you deploy server.py
+   CONFIG
 ════════════════════════════════════════════════════════ */
-const SERVER_URL = "https://mini-project-a8ql.onrender.com"; // ← replace with Render URL after deploy
+const SERVER_URL = "https://mini-project-a8ql.onrender.com";
 
 /* ════════════════════════════════════════════════════════
    STATE
@@ -434,12 +434,12 @@ let userUID    = "";
 let chaosSeed  = "";
 let curCode    = "--------";
 let lastWin    = -1;
-let frameHash  = "";
+let frameHash  = null;   // null = no image uploaded yet
 let isDemoMode = false;
-const CIRC     = 2 * Math.PI * 22; // ring circumference
+const CIRC     = 2 * Math.PI * 22;
 
 /* ════════════════════════════════════════════════════════
-   CRYPTO  (mirrors server.py / code_generator.py exactly)
+   CRYPTO  (mirrors server.py / generate_code.py exactly)
 ════════════════════════════════════════════════════════ */
 async function hmac256(key, msg) {
   const enc = new TextEncoder();
@@ -466,8 +466,6 @@ async function registerUser(uid, email) {
       body: JSON.stringify({uid, email})
     });
     const d = await r.json();
-    const src = document.getElementById("frame-source");
-    if (src) src.textContent = "webcam · server";
     return d.chaos_seed || null;
   } catch(e) {
     console.warn("Server offline — using local seed fallback");
@@ -475,21 +473,66 @@ async function registerUser(uid, email) {
   }
 }
 
+/* KEY FIX: fetchHash now checks "ready" flag.
+   If server says no image uploaded yet, returns null
+   so tick() knows not to generate a code yet. */
 async function fetchHash() {
   try {
     const r = await fetch(`${SERVER_URL}/hash`);
     const d = await r.json();
+    if (!d.ready || !d.hash) {
+      // No image has been clicked/uploaded yet
+      document.getElementById("frame-source").textContent = "⏳ waiting for image click…";
+      return null;
+    }
     document.getElementById("frame-source").textContent = "webcam · server";
     return d.hash;
   } catch {
-    const win = getWin();
-    const enc = new TextEncoder();
-    const data = enc.encode(`server_entropy_fallback:${win}`);
-    const hashBuf = await crypto.subtle.digest("SHA-256", data);
-    const fallbackHash = [...new Uint8Array(hashBuf)].map(b=>b.toString(16).padStart(2,"0")).join("");
-    document.getElementById("frame-source").textContent = "⚠ fallback (server offline)";
-    return fallbackHash;
+    document.getElementById("frame-source").textContent = "⚠ server offline";
+    return null;
   }
+}
+
+/* ════════════════════════════════════════════════════════
+   IMAGE CLICK HANDLER
+   This is the core of the fix:
+   The entropy canvas in the app acts as the "image".
+   When the user clicks it → we fetch the current server hash
+   → generate + display code.
+   Without a click → OTP stays "--------".
+════════════════════════════════════════════════════════ */
+async function onEntropyCanvasClick() {
+  if (!chaosSeed) return;
+
+  document.getElementById("frame-source").textContent = "🔄 fetching hash…";
+  const serverHash = await fetchHash();
+
+  if (!serverHash) {
+    // Server has no image hash yet → tell user to run generate_code.py first
+    document.getElementById("otp-a").textContent = "NO";
+    document.getElementById("otp-b").textContent = "IMG";
+    document.getElementById("frame-source").textContent = "⚠ run generate_code.py first";
+    return;
+  }
+
+  frameHash = serverHash;
+  const win  = getWin();
+  lastWin    = win;
+
+  const code = await makeCode(chaosSeed, frameHash, win);
+  curCode    = code;
+
+  document.getElementById("hash-disp").textContent = frameHash.slice(0,12)+"…";
+  document.getElementById("win-disp").textContent  = win;
+  document.getElementById("otp-wrap").classList.add("fade");
+
+  setTimeout(() => {
+    document.getElementById("otp-a").textContent = code.slice(0,4);
+    document.getElementById("otp-b").textContent = code.slice(4,8);
+    document.getElementById("otp-wrap").classList.remove("fade");
+  }, 220);
+
+  drawEntropyCanvas("ecanvas", 160, 120);
 }
 
 /* ════════════════════════════════════════════════════════
@@ -512,7 +555,6 @@ async function demoMode() {
 }
 
 function doLogout() {
-  if (window.__user && window.__user.uid) {}
   onLogout();
 }
 
@@ -521,7 +563,7 @@ function doLogout() {
 ════════════════════════════════════════════════════════ */
 async function onLogin(user) {
   userUID = user.uid;
-  document.getElementById("nav-email").textContent = "ID: " + user.email || user.displayName || "user";
+  document.getElementById("nav-email").textContent = "ID: " + (user.email || user.displayName || "user");
   document.getElementById("uid-disp").textContent  = userUID.slice(0,8)+"····"+userUID.slice(-4);
   document.getElementById("uid-in-endpoint").textContent = `"${userUID.slice(0,8)}…"`;
 
@@ -532,14 +574,32 @@ async function onLogin(user) {
   document.getElementById("seed-disp").textContent = seedMasked;
 
   document.getElementById("login").style.display = "none";
-  document.getElementById("app").style.display   = "flex"; // Changed to flex for new layout
+  document.getElementById("app").style.display   = "flex";
   document.getElementById("server-url-disp").textContent = SERVER_URL;
 
-  tick(true);
+  // Show placeholder — no code until image clicked
+  document.getElementById("otp-a").textContent = "CLICK";
+  document.getElementById("otp-b").textContent = "IMG →";
+  document.getElementById("frame-source").textContent = "click canvas below to generate";
+
+  // Wire up click on the entropy canvas
+  const canvas = document.getElementById("ecanvas");
+  canvas.style.cursor = "pointer";
+  canvas.title = "Click to generate your code";
+  canvas.onclick = onEntropyCanvasClick;
+
+  // Add a visual hint below canvas
+  const hint = document.createElement("div");
+  hint.id = "click-hint";
+  hint.style.cssText = "font-family:var(--mono);font-size:0.7rem;color:var(--cyan);text-align:center;margin-top:6px;letter-spacing:0.05em;";
+  hint.textContent = "↑ CLICK TO GENERATE CODE";
+  canvas.parentElement.parentElement.appendChild(hint);
+
+  tick(false);  // start the timer UI but don't generate code
 }
 
 function onLogout() {
-  userUID = ""; chaosSeed = ""; isDemoMode = false;
+  userUID = ""; chaosSeed = ""; isDemoMode = false; frameHash = null; curCode = "--------";
   try { localStorage.removeItem("entropyauth_uid"); } catch(e) {}
   document.getElementById("app").style.display   = "none";
   document.getElementById("login").style.display = "flex";
@@ -547,7 +607,10 @@ function onLogout() {
 }
 
 /* ════════════════════════════════════════════════════════
-   OTP TICK (every 1 second)
+   OTP TICK (every 1 second — updates timer only)
+   KEY FIX: tick() no longer auto-fetches hash or generates
+   code. Code only generates on image click (onEntropyCanvasClick).
+   When window rolls over, clear code so user must click again.
 ════════════════════════════════════════════════════════ */
 async function tick(force=false) {
   if (!chaosSeed) return;
@@ -555,37 +618,29 @@ async function tick(force=false) {
   const win  = getWin();
   const secs = getSecsL();
 
-  // Ring (Hijacked for linear bar)
+  // Update progress bar
   const offset = CIRC * (1 - secs/30);
   document.getElementById("ring").style.strokeDashoffset = offset;
   document.getElementById("ring").classList.toggle("urgent", secs<=7);
-  
-  // Format seconds with leading zero for aesthetic
   document.getElementById("secs-num").textContent = secs.toString().padStart(2, '0');
 
-  if (win !== lastWin || force) {
+  // When window rolls over: clear code, tell user to click again
+  if (win !== lastWin && lastWin !== -1) {
     lastWin = win;
-    document.getElementById("otp-wrap").classList.add("fade");
-
-    frameHash = await fetchHash();
-    const code = await makeCode(chaosSeed, frameHash, win);
-    curCode    = code;
-
-    document.getElementById("hash-disp").textContent = frameHash.slice(0,12)+"…";
+    curCode = "--------";
+    frameHash = null;
+    document.getElementById("otp-a").textContent = "CLICK";
+    document.getElementById("otp-b").textContent = "IMG →";
+    document.getElementById("frame-source").textContent = "window expired — click canvas";
+    document.getElementById("hash-disp").textContent = "—";
     document.getElementById("win-disp").textContent  = win;
-
-    drawEntropyCanvas("ecanvas", 160, 120);
-
-    setTimeout(() => {
-      document.getElementById("otp-a").textContent = code.slice(0,4);
-      document.getElementById("otp-b").textContent = code.slice(4,8);
-      document.getElementById("otp-wrap").classList.remove("fade");
-    }, 220);
+  } else if (lastWin === -1) {
+    lastWin = win;
   }
 }
 
 /* ════════════════════════════════════════════════════════
-   ENTROPY CANVAS  (simulated noise with bimodal circles)
+   ENTROPY CANVAS
 ════════════════════════════════════════════════════════ */
 function drawEntropyCanvas(id, w, h) {
   const c   = document.getElementById(id);
@@ -608,12 +663,7 @@ function drawEntropyCanvas(id, w, h) {
 
   const idx = [...Array(n).keys()].sort((a,b)=>lum[b]-lum[a]);
   const bright=idx.slice(0,3), dark=idx.slice(-3);
-  const ring=(i,col)=>{
-    ctx.strokeStyle=col; ctx.lineWidth=0.8;
-    ctx.beginPath();
-    ctx.arc((i%w)+.5,(i/w|0)+.5,2.5,0,Math.PI*2);
-    ctx.stroke();
-  };
+  const ring=(i,col)=>{ ctx.strokeStyle=col; ctx.lineWidth=0.8; ctx.beginPath(); ctx.arc((i%w)+.5,(i/w|0)+.5,2.5,0,Math.PI*2); ctx.stroke(); };
   bright.forEach(i=>ring(i,"#00e5a0"));
   dark.forEach(i=>ring(i,"#5b9cf6"));
 }
@@ -629,20 +679,13 @@ function copyOTP() {
   if (!curCode || curCode==="--------") return;
   navigator.clipboard.writeText(curCode.replace(/[^A-Z0-9]/g,"")).then(()=>{
     const b=document.getElementById("copybtn");
-    b.textContent="COPIED ✓"; 
+    b.textContent="COPIED ✓";
     b.style.color="var(--bg-main)";
     b.style.background="var(--cyan)";
-    setTimeout(()=>{ 
-        b.textContent="COPY CODE"; 
-        b.style.color=""; 
-        b.style.background="";
-    }, 1800);
+    setTimeout(()=>{ b.textContent="COPY CODE"; b.style.color=""; b.style.background=""; }, 1800);
   });
 }
 
-/* ════════════════════════════════════════════════════════
-   COPY SEED
-════════════════════════════════════════════════════════ */
 function copySeed() {
   if (!chaosSeed) return;
   navigator.clipboard.writeText(chaosSeed);
@@ -651,12 +694,8 @@ function copySeed() {
   setTimeout(()=>el.classList.remove("show"), 1400);
 }
 
-/* ════════════════════════════════════════════════════════
-   COPY ENDPOINT SNIPPET
-════════════════════════════════════════════════════════ */
 function copyEndpoint() {
-  const text=`fetch("${SERVER_URL}/verify", { ... })`;
-  navigator.clipboard.writeText(text);
+  navigator.clipboard.writeText(`fetch("${SERVER_URL}/verify", { ... })`);
 }
 
 /* ════════════════════════════════════════════════════════
@@ -670,24 +709,23 @@ function openQR() {
     const secret=btoa(chaosSeed).replace(/=/g,"").slice(0,32).toUpperCase();
     const uri=`otpauth://totp/EntropyAuth:${encodeURIComponent(email)}?secret=${secret}&issuer=EntropyAuth&digits=8&period=30`;
     document.getElementById("qr-box").innerHTML="";
-    // QR Code rendered with black data blocks on a white box to ensure scanning works easily
     new QRCode(document.getElementById("qr-box"),{text:uri,width:180,height:180,colorDark:"#000000",colorLight:"#ffffff"});
-    document.getElementById("qr-caption").textContent=`Scan with Google Authenticator or Authy. Your chaos seed: ${chaosSeed.slice(0,8)}…`;
+    document.getElementById("qr-caption").textContent=`Scan with Google Authenticator. chaos seed: ${chaosSeed.slice(0,8)}…`;
     qrDone=true;
   }
 }
 function closeQR(){document.getElementById("qr-overlay").style.display="none"}
 
 /* ════════════════════════════════════════════════════════
-   IN-APP VERIFY DEMO
+   VERIFY DEMO
 ════════════════════════════════════════════════════════ */
 async function verifyDemo() {
   const inp=document.getElementById("vinput").value.replace(/[^A-Za-z0-9]/g,"").toUpperCase();
-  const res=document.getElementById("vresult");
+  if (!frameHash) return;
   const win=getWin();
-  const h=frameHash||await fetchHash();
-  const codes=await Promise.all([0,-1,1].map(o=>makeCode(chaosSeed,h,win+o)));
+  const codes=await Promise.all([0,-1,1].map(o=>makeCode(chaosSeed,frameHash,win+o)));
   const ok=codes.includes(inp);
+  console.log("verify:", ok, codes);
 }
 function clearVR(){}
 
