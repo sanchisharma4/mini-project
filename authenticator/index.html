@@ -719,23 +719,22 @@ async function makeCode(seed, hash, win) {
 
 /* ── Server calls ────────────────────────────────────────────────────────── */
 async function registerUser(uid, email) {
-  try {
-    const r = await fetch(`${SERVER_URL}/register`, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({uid, email})
-    });
-    const d = await r.json();
-    return d.chaos_seed || null;
-  } catch {
-    return await hmac256("miniproject825", uid).then(h => h.slice(0,32));
-  }
+  const r = await fetch(`${SERVER_URL}/register`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({uid, email})
+  });
+  if (!r.ok) throw new Error(`Server register failed: ${r.status}`);
+  const d = await r.json();
+  if (!d.chaos_seed) throw new Error("Server returned no chaos_seed");
+  return d.chaos_seed;
 }
 
 async function fetchHash() {
   try {
     const r = await fetch(`${SERVER_URL}/hash`);
     const d = await r.json();
-    if (!d.active || !d.hash) return null;
+    // Require both active flag AND a valid 64-char hex hash
+    if (!d.active || !d.hash || d.hash.length !== 64) return null;
     return d.hash;
   } catch {
     return null;
@@ -745,7 +744,7 @@ async function fetchHash() {
 /* ── Auto-refresh loop ───────────────────────────────────────────────────── */
 
 async function autoRefresh() {
-  if (!chaosSeed) return;
+  if (!chaosSeed || chaosSeed.length < 8) return;  // never compute with empty/partial seed
   const serverHash = await fetchHash();
   if (!serverHash) {
     // Always clear unconditionally — never let a stale hash linger
@@ -838,18 +837,27 @@ async function onLogin(user) {
     w2.innerHTML = ""; w2.appendChild(makeImg("dropdown-user-avatar","dropdown-avatar"));
   }
 
-  chaosSeed = await registerUser(userUID, email);
-  document.getElementById("seed-disp").textContent       = chaosSeed.slice(0,8)+"·····"+chaosSeed.slice(-4);
+  // Show app shell immediately — but clear OTP until server confirms seed
+  document.getElementById("otp-a").textContent = "——";
+  document.getElementById("otp-b").textContent = "——";
   document.getElementById("login").style.display         = "none";
   document.getElementById("app").style.display           = "flex";
   document.getElementById("app-topbar").style.display    = "flex";
   document.getElementById("server-url-disp").textContent = SERVER_URL;
+  setStatus("connecting to server…");
 
-  document.getElementById("otp-a").textContent = "——";
-  document.getElementById("otp-b").textContent = "——";
-  setStatus("waiting for entropy source…");
-
-  showToast("✓ Authenticated as " + displayName);
+  try {
+    chaosSeed = await registerUser(userUID, email);
+    document.getElementById("seed-disp").textContent = chaosSeed.slice(0,8)+"·····"+chaosSeed.slice(-4);
+    setStatus("waiting for entropy source…");
+    showToast("✓ Authenticated as " + displayName);
+  } catch(e) {
+    // Server unreachable — show clear error, never show a spurious code
+    chaosSeed = "";
+    setStatus("⚠ server unreachable — codes unavailable");
+    showToast("⚠ Cannot reach server: " + e.message, "var(--red)");
+    document.getElementById("seed-disp").textContent = "unavailable";
+  }
   tick();
 }
 
