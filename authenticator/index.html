@@ -743,25 +743,23 @@ async function fetchHash() {
 }
 
 /* ── Auto-refresh loop ───────────────────────────────────────────────────── */
-let _generatorWasActive = false;
 
 async function autoRefresh() {
   if (!chaosSeed) return;
   const serverHash = await fetchHash();
   if (!serverHash) {
-    if (_generatorWasActive || frameHash !== null) {
-      _generatorWasActive = false;
-      frameHash = null; curCode = "--------"; lastWin = -1;
-      document.getElementById("otp-a").textContent = "——";
-      document.getElementById("otp-b").textContent = "——";
-      setStatus("generator offline");
-      document.getElementById("hash-disp").textContent = "—";
-    }
+    // Always clear unconditionally — never let a stale hash linger
+    frameHash = null; curCode = "--------"; lastWin = -1;
+    document.getElementById("otp-a").textContent = "——";
+    document.getElementById("otp-b").textContent = "——";
+    setStatus("generator offline");
+    document.getElementById("hash-disp").textContent = "—";
     return;
   }
-  _generatorWasActive = true;
   const win = getWin();
-  if (serverHash === frameHash && win === lastWin) return;
+  // Only skip recompute if BOTH hash AND window are unchanged
+  // frameHash must be non-null (guards against stale hash + new window recompute)
+  if (frameHash !== null && serverHash === frameHash && win === lastWin) return;
   frameHash = serverHash; lastWin = win;
   const code = await makeCode(chaosSeed, frameHash, win);
   curCode = code;

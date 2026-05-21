@@ -257,6 +257,28 @@ def admin_codes():
     return jsonify({"users": result, "window": w, "hash_ready": h is not None})
 
 
+
+# ── GET /lookup?email=... ─────────────────────────────────────────────────────
+# Demo website uses this to find a user's uid by email address
+# Protected by admin_key query param.
+@app.route("/lookup")
+def lookup_by_email():
+    api_key = request.args.get("admin_key", "")
+    email   = request.args.get("email", "").strip().lower()
+
+    if not secrets.compare_digest(api_key, ADMIN_API_KEY):
+        return jsonify({"error": "Invalid admin_key"}), 403
+    if not email:
+        return jsonify({"error": "email required"}), 400
+
+    users = load_users()
+    for uid, u in users.items():
+        if u.get("email", "").lower() == email:
+            return jsonify({"uid": uid, "email": u.get("email"), "found": True})
+
+    return jsonify({"found": False, "error": "No user registered with that email"}), 404
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
@@ -265,3 +287,4 @@ if __name__ == "__main__":
     print(f"USERS_FILE: {USERS_FILE}")
     print(f"Admin key : {ADMIN_API_KEY}\n")
     app.run(host="0.0.0.0", port=port, debug=False)
+
