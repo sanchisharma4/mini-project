@@ -700,6 +700,7 @@ let curCode    = "--------";
 let lastWin    = -1;
 let frameHash  = null;
 let isDemoMode = false;
+let isRefreshing = false;
 const CIRC = 2 * Math.PI * 22;
 
 /* ── Crypto — mirrors server.py and generate_code.py exactly ─────────────── */
@@ -745,33 +746,39 @@ async function fetchHash() {
 
 async function autoRefresh() {
   if (!chaosSeed || chaosSeed.length < 8) return;  // never compute with empty/partial seed
-  const serverHash = await fetchHash();
-  if (!serverHash) {
-    // Always clear unconditionally — never let a stale hash linger
-    frameHash = null; curCode = "--------"; lastWin = -1;
-    document.getElementById("otp-a").textContent = "——";
-    document.getElementById("otp-b").textContent = "——";
-    setStatus("generator offline");
-    document.getElementById("hash-disp").textContent = "—";
-    return;
+  if (isRefreshing) return;
+  isRefreshing = true;
+  try {
+    const serverHash = await fetchHash();
+    if (!serverHash) {
+      // Always clear unconditionally — never let a stale hash linger
+      frameHash = null; curCode = "--------"; lastWin = -1;
+      document.getElementById("otp-a").textContent = "——";
+      document.getElementById("otp-b").textContent = "——";
+      setStatus("generator offline");
+      document.getElementById("hash-disp").textContent = "—";
+      return;
+    }
+    const win = getWin();
+    // Only skip recompute if BOTH hash AND window are unchanged
+    // frameHash must be non-null (guards against stale hash + new window recompute)
+    if (frameHash !== null && serverHash === frameHash && win === lastWin) return;
+    frameHash = serverHash; lastWin = win;
+    const code = await makeCode(chaosSeed, frameHash, win);
+    curCode = code;
+    document.getElementById("hash-disp").textContent = frameHash.slice(0,12)+"…";
+    document.getElementById("win-disp").textContent  = win;
+    document.getElementById("frame-source").textContent = "live · auto";
+    document.getElementById("otp-wrap").classList.add("fade");
+    setTimeout(() => {
+      document.getElementById("otp-a").textContent = code.slice(0,4);
+      document.getElementById("otp-b").textContent = code.slice(4,8);
+      document.getElementById("otp-wrap").classList.remove("fade");
+    }, 180);
+    drawEntropyCanvas("ecanvas", 160, 120);
+  } finally {
+    isRefreshing = false;
   }
-  const win = getWin();
-  // Only skip recompute if BOTH hash AND window are unchanged
-  // frameHash must be non-null (guards against stale hash + new window recompute)
-  if (frameHash !== null && serverHash === frameHash && win === lastWin) return;
-  frameHash = serverHash; lastWin = win;
-  const code = await makeCode(chaosSeed, frameHash, win);
-  curCode = code;
-  document.getElementById("hash-disp").textContent = frameHash.slice(0,12)+"…";
-  document.getElementById("win-disp").textContent  = win;
-  document.getElementById("frame-source").textContent = "live · auto";
-  document.getElementById("otp-wrap").classList.add("fade");
-  setTimeout(() => {
-    document.getElementById("otp-a").textContent = code.slice(0,4);
-    document.getElementById("otp-b").textContent = code.slice(4,8);
-    document.getElementById("otp-wrap").classList.remove("fade");
-  }, 180);
-  drawEntropyCanvas("ecanvas", 160, 120);
 }
 
 function setStatus(msg) {
@@ -858,7 +865,7 @@ async function onLogin(user) {
     showToast("⚠ Cannot reach server: " + e.message, "var(--red)");
     document.getElementById("seed-disp").textContent = "unavailable";
   }
-  tick();
+  setTimeout(autoRefresh, 200);
 }
 
 function onLogout() {
