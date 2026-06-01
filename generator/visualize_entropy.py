@@ -1,32 +1,3 @@
-"""
-EntropyAuth — visualize_entropy.py
-
-Run this alongside generate_code.py (in a second terminal) to save visual
-proof of every capture for your college demo.
-
-What it produces every 30 seconds
-──────────────────────────────────
-  generator/actual_images/
-      frame_<timestamp>.jpg      — the raw webcam photo, exactly as captured
-
-  generator/noise_frames/
-      frame_<timestamp>.jpg      — the same photo with an overlay that shows:
-                                     • a grid marking every pixel block
-                                     • the SHA-256 byte-scan direction (arrow)
-                                     • top-5 brightest pixels  (cyan rings)
-                                     • top-5 darkest pixels    (magenta rings)
-                                     • the resulting hash burned into the image
-                                     • the OTP code burned into the image
-
-Usage
-──────
-    python visualize_entropy.py           # webcam, loops forever
-    python visualize_entropy.py photo.jpg # fixed image, loops forever
-
-Requirements: opencv-python, numpy  (pip install opencv-python numpy)
-              Same config.json as generate_code.py
-"""
-
 import os, sys, json, time, hmac, hashlib, math
 import cv2
 import numpy as np
@@ -54,7 +25,6 @@ GREY    = (180, 180, 180)
 OVERLAY = ( 20,  20,  20)   # near-black for text bars
 
 
-# ── Config ─────────────────────────────────────────────────────────────────────
 
 def load_config():
     if os.path.exists(CONFIG_PATH):
@@ -63,7 +33,6 @@ def load_config():
     return {}
 
 
-# ── Capture ────────────────────────────────────────────────────────────────────
 
 def capture_webcam():
     cap = cv2.VideoCapture(0)
@@ -84,7 +53,6 @@ def load_image(path):
     return cv2.resize(img, (IMG_W, IMG_H), interpolation=cv2.INTER_AREA)
 
 
-# ── Hash ───────────────────────────────────────────────────────────────────────
 
 def hash_frame(bgr_frame):
     """Convert BGR to RGB (same as generate_code.py), then SHA-256 the bytes."""
@@ -279,8 +247,6 @@ def main():
         print(f"\n{TLINE}")
         print(f"  {TBOLD}Cycle #{cycle}{TRESET}  {TDIM}{time.strftime('%H:%M:%S')}  window {window}{TRESET}")
         print(TLINE)
-        print(f"  Hash    {TDIM}{frame_hash[:32]}…{TRESET}")
-        print(f"  Code    {TCYAN}{TBOLD}{otp_code}{TRESET}")
         print(f"  Actual  {TDIM}{os.path.relpath(actual_path, BASE_DIR)}{TRESET}")
         print(f"  Noise   {TDIM}{os.path.relpath(noise_path, BASE_DIR)}{TRESET}")
         print(TLINE)

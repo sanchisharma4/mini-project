@@ -1,18 +1,4 @@
-"""
-EntropyAuth — server.py  (FIXED)
-Place this file in the  generator/  folder.
 
-Deploy on Render.com:
-  Build command : pip install -r requirements.txt
-  Start command : python server.py
-  Env variable  : ADMIN_API_KEY = miniproject825
-
-KEY FIXES vs original:
-  1. /admin/codes endpoint — returns every registered user's current code
-     so generate_code.py --watch can show all users in terminal
-  2. /admin/codes also embeds uid so terminal can highlight "you"
-  3. users.json now stores email reliably on every register call
-"""
 
 import os, json, time, hmac, hashlib, threading, secrets
 from flask import Flask, request, jsonify
@@ -21,12 +7,10 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# ── Config ────────────────────────────────────────────────────────────────────
 BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
 USERS_FILE    = os.path.join(BASE_DIR, "users.json")
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "miniproject825")
 
-# ── User store ────────────────────────────────────────────────────────────────
 def load_users() -> dict:
     if not os.path.exists(USERS_FILE):
         return {}
@@ -37,10 +21,6 @@ def save_users(users: dict) -> None:
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=2)
 
-# ── Entropy state ─────────────────────────────────────────────────────────────
-# generate_code.py pushes the local photo hash here via POST /upload-hash.
-# GET /hash returns it to the browser so BOTH sides use the exact same value.
-# uploaded_at lets us expire the hash when generate_code.py stops running.
 HASH_TTL     = 35   # seconds — slightly longer than the 30s capture interval
 _latest_hash = {"value": None, "window": -1, "uploaded_at": 0}
 _hash_lock   = threading.Lock()
@@ -57,7 +37,7 @@ def _get_current_hash_and_window():
         return None, int(time.time()) // 30
     return h, w
 
-# ── Code generation ───────────────────────────────────────────────────────────
+
 def _generate_code(chaos_seed: str, frame_hash: str, window: int) -> str:
     """
     Mirrors generate_code.py generate_otp() and index.html makeCode() exactly:
@@ -67,9 +47,7 @@ def _generate_code(chaos_seed: str, frame_hash: str, window: int) -> str:
     return hmac.new(chaos_seed.encode(), message, hashlib.sha256).hexdigest()[:8].upper()
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  ENDPOINTS
-# ═════════════════════════════════════════════════════════════════════════════
+
 
 @app.route("/")
 def index():
@@ -92,12 +70,6 @@ def get_hash():
     })
 
 
-# ── POST /upload-hash ─────────────────────────────────────────────────────────
-# Called by generate_code.py after the user clicks/captures an image.
-# Stores the hash so GET /hash returns it to the browser.
-#
-# Body:    { "hash": "<64-char sha256 hex>", "admin_key": "<key>" }
-# Returns: { "ok": true, "hash": "...", "window": N }
 @app.route("/upload-hash", methods=["POST"])
 def upload_hash():
     data     = request.get_json(silent=True) or {}
@@ -129,12 +101,6 @@ def upload_hash():
     return jsonify({"ok": True, "hash": new_hash, "window": win})
 
 
-# ── POST /register ────────────────────────────────────────────────────────────
-# Called by browser (Google login) and generate_code.py.
-# uid MUST be the Google 'sub' (numeric string) — same in both places.
-#
-# Body:    { "uid": "...", "email": "..." }
-# Returns: { "chaos_seed": "...", "registered": true/false }
 @app.route("/register", methods=["POST"])
 def register():
     data  = request.get_json(silent=True) or {}
@@ -225,12 +191,7 @@ def get_user(uid):
     })
 
 
-# ── GET /admin/codes  ─────────────────────────────────────────────────────────
-# NEW ENDPOINT — lets generate_code.py --watch show ALL users' current codes.
-# Protected by admin_key query param.
-#
-# GET /admin/codes?admin_key=miniproject825
-# Returns: { "users": [ {"uid":..., "email":..., "code":..., "window":...} ] }
+
 @app.route("/admin/codes")
 def admin_codes():
     api_key = request.args.get("admin_key", "")
@@ -258,9 +219,6 @@ def admin_codes():
 
 
 
-# ── GET /lookup?email=... ─────────────────────────────────────────────────────
-# Demo website uses this to find a user's uid by email address
-# Protected by admin_key query param.
 @app.route("/lookup")
 def lookup_by_email():
     api_key = request.args.get("admin_key", "")

@@ -1,18 +1,3 @@
-"""
-EntropyAuth — generate_code.py
-
-Runs continuously. Every 30 seconds:
-  1. Captures a webcam photo (or reuses a provided image path)
-  2. Hashes the pixels and uploads the hash to the server
-  3. Server pushes the new hash to all connected browsers automatically
-  4. Prints a live dashboard of every active user's current code
-
-Usage:
-    python generate_code.py                   # webcam, loops forever
-    python generate_code.py photo.jpg         # fixed image, loops forever
-    python generate_code.py --setup           # first-time UID configuration
-"""
-
 import sys, os, json, time, hmac, hashlib, urllib.request, urllib.error
 
 try:
@@ -30,8 +15,6 @@ IMG_W, IMG_H = 320, 240
 INTERVAL     = 30   # seconds between captures
 
 
-# ── Config ─────────────────────────────────────────────────────────────────────
-
 def load_config():
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH) as f:
@@ -42,8 +25,6 @@ def save_config(cfg):
     with open(CONFIG_PATH, "w") as f:
         json.dump(cfg, f, indent=2)
 
-
-# ── Image capture ──────────────────────────────────────────────────────────────
 
 def capture_webcam():
     if not _CV2_OK:
@@ -187,7 +168,7 @@ def run_setup():
         sys.exit(1)
 
 
-# ── Main loop ──────────────────────────────────────────────────────────────────
+
 
 def main():
     args = sys.argv[1:]
@@ -241,17 +222,17 @@ def main():
             time.sleep(INTERVAL)
             continue
 
-        # ── Generate my code ─────────────────────────────────────────────────
+        
         my_code = make_code(chaos_seed, frame_hash, window)
 
-        # ── Fetch all users ───────────────────────────────────────────────────
+        
         users = fetch_all_users()
 
-        # ── Print dashboard ───────────────────────────────────────────────────
+        
         clear_line()
         print_dashboard(email, my_code, window, users, secs_left())
 
-        # ── Wait for next window ─────────────────────────────────────────────
+       
         while secs_left() > 1:
             time.sleep(1)
             clear_line()
